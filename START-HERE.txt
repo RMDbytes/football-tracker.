@@ -1,55 +1,80 @@
 FOOTBALL TRACKER - START HERE
 =============================
 
-What this is: one project that is BOTH a website and a phone app.
-Open the address on any phone or computer. On a phone you can add it to
-your home screen so it looks and opens like a normal app.
+One project that is BOTH a website and a phone app. Open the address on any
+phone or computer. On a phone, add it to your home screen so it opens like
+a normal app.
 
-It starts in DEMO MODE (made-up matches) so you can see it working with
-no sign-ups. Add your data key to switch to real matches.
+It starts in DEMO MODE (made-up matches) so you can see it working with no
+sign-ups. Add your data key to switch to real matches.
 
---- WHAT YOU NEED ---
-1. A free API-Football key (this is your real data source)
-     Sign up at: https://www.api-football.com
-     Copy the "API key" from your account page.
-2. A free GitHub account (a place to keep these files): https://github.com
-3. A free Render account (puts the app on the internet): https://render.com
+WHAT IT DOES
+- Browse matches by day with a day strip, or tap the calendar button to
+  jump to any date up to about 13 months back or ahead
+- Match page with 4 tabs: Ticker (goals, cards, substitutions, VAR, newest
+  first), Lineups (pitch view, formations, coaches, substitutes), Stats
+  (possession, shots, corners and more) and Players (ratings and stats)
+- Live scores, league tables, news headlines
+- NO ACCOUNT NEEDED. Favorites are remembered on the device:
+    * Follow teams (star button on any match page, or search by name in the
+      Favorites tab) and follow single matches
+    * A "Following" block at the top of the matches list and a "Mine"
+      filter show your teams' games
+    * Pop-up alerts while the app is open for goals, kick-off, half-time and
+      full time of your teams and matches. Switch each type on or off in
+      Favorites. Recent updates are listed there too
+    * "Clear favorites" removes everything saved on the device
+  Nothing about your favorites is stored on any server.
 
---- PUT IT ONLINE (about 20 minutes, easiest on a computer) ---
-1. Unzip this folder on your computer.
-2. On GitHub: click "New repository", name it football-tracker,
-   then "uploading an existing file", drag in ALL the files and the
-   "public" folder from this project, and click "Commit changes".
-3. On Render: click New > Web Service > connect your GitHub >
-   choose football-tracker.
-4. Fill in:
+--- UPDATING AN EXISTING SETUP (you already did the first setup) ---
+1. Unzip this folder.
+2. On GitHub, open your football-tracker repository.
+3. Tap "Add file" > "Upload files".
+4. Drag in EVERYTHING from the unzipped folder: server.js, package.json,
+   START-HERE.txt and the "public" folder.
+   (Files with the same name are replaced.)
+5. Tap "Commit changes". Render notices and rebuilds by itself
+   (about 2 minutes). Then close the app on your phone and open it again.
+6. Optional tidy-up: the old file "store.js" is no longer used. You can
+   open it on GitHub and delete it (three dots > Delete file). Leaving it
+   does no harm.
+7. Optional tidy-up: on Render, the DATABASE_URL setting (if you added it)
+   is no longer needed.
+
+--- FIRST-TIME SETUP ---
+1. Free API-Football key (real data): https://www.api-football.com
+2. Free GitHub account: https://github.com
+3. Free Render account: https://render.com
+4. On GitHub, make a repository and upload all these files.
+5. On Render: New > Web Service > pick your repository.
      Build Command:  npm install
      Start Command:  npm start
      Instance type:  Free
-5. Under "Environment Variables" add:
-     API_KEY  =  (paste your API-Football key)
-   Leave it out to stay in demo mode.
-6. Click "Create Web Service". Wait a few minutes.
-7. Render shows your address (like https://football-tracker.onrender.com).
-   Open it on your phone.
+6. Render > your service > Environment. Add:
+     API_KEY  =  (your API-Football key)      <- switches on real matches
+7. Open the address Render gives you.
 
 --- INSTALL ON YOUR PHONE ---
-iPhone (use Safari):  Share button > "Add to Home Screen"
-Android (use Chrome): Menu (3 dots) > "Install app" or "Add to Home screen"
+Android (Chrome): menu (3 dots) > "Install and create shortcut"
+iPhone (Safari):  Share button > "Add to Home Screen"
 
 --- GOOD TO KNOW ---
-- The free Render plan goes to sleep when nobody uses it. The first
-  open after a break can take about a minute.
-- The free API-Football plan allows 100 requests a day. That is enough
-  to test, but live scores update roughly every 5 minutes and can run
-  out on a busy day. A paid plan fixes this: then add an environment
-  variable LIVE_POLL_SECONDS = 30 and DAILY_LIMIT = (your plan's number).
+- Favorites live on ONE device. A new phone starts empty, and clearing the
+  app's data or uninstalling removes them. (An optional cloud backup or
+  account could be added later if you want favorites on several devices.)
+- The free Render plan sleeps when unused. The first open after a break
+  can take about a minute.
+- The free API-Football plan allows 100 requests a day. Each new day you
+  open, each Lineups or Players tab, each team search and each live refresh
+  uses some. The app saves requests by remembering what it already fetched,
+  and once it learns which days your plan covers it stops asking for other
+  days. If a day is not included in your plan, the app says so on that
+  day's screen. Months of real matches need a paid API-Football plan; the
+  app itself does not change.
+- Alerts appear only while the app is open. Alerts when the app is closed
+  (push notifications) come with the Android and iPhone store versions.
 - News (optional): add NEWS_FEEDS = link to a news site's RSS feed
-  (separate several with commas). The app only shows the headline, the
-  source name and a link back to the original. Check each site's terms
-  first. Many allow personal, non-commercial use only.
-
---- TRY IT ON YOUR OWN COMPUTER FIRST (optional) ---
-Install Node.js (version 20 or newer) from https://nodejs.org, then in
-this folder run:   npm install    then    npm start
-Open http://localhost:3000 in your browser.
+  (several allowed, separated by commas). The app shows only the headline,
+  the source name and a link back. Check each site's terms first.
+- Before the public launch: add a privacy policy page. Stores ask for one
+  even when you collect very little.

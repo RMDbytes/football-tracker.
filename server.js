@@ -7,20 +7,22 @@ import { WebSocketServer } from 'ws';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 
-// ---------- Settings (all optional; set them as "environment variables" on your host) ----------
-const API_KEY = process.env.API_KEY || '';                       // API-Football key. Empty = demo mode
+// ---------- Settings (optional; set them as "environment variables" on your host) ----------
+const API_KEY = process.env.API_KEY || '';                              // API-Football key. Empty = demo mode
 const PORT = process.env.PORT || 3000;
-const NEWS_FEEDS = process.env.NEWS_FEEDS || '';                 // comma-separated RSS feed links
-const DAILY_LIMIT = Number(process.env.DAILY_LIMIT || 100);      // your plan's requests per day
+const NEWS_FEEDS = process.env.NEWS_FEEDS || '';                        // comma-separated RSS feed links
+const DAILY_LIMIT = Number(process.env.DAILY_LIMIT || 100);             // your plan's requests per day
 const LIVE_POLL_SECONDS = Number(process.env.LIVE_POLL_SECONDS || 300); // 300 suits the free plan
 
 const DEMO = !API_KEY;
 const BASE = 'https://v3.football.api-sports.io';
 const LIVE_STATUSES = ['1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT'];
 const isLive = (s) => LIVE_STATUSES.includes(s);
+const DAY = 86400000;
 
-// ---------- Storage (in memory; it refills itself from the API after a restart) ----------
+// ---------- Matches storage (in memory; refills itself from the API) ----------
 const fixtures = new Map();
+const dayCache = new Map();
 
 function save(rows) {
   const changes = [];
@@ -29,8 +31,7 @@ function save(rows) {
     fixtures.set(row.id, row);
     if (!old) continue;
     const scoreChanged =
-      old.homeGoals !== null &&
-      (old.homeGoals !== row.homeGoals || old.awayGoals !== row.awayGoals);
+      old.homeGoals !== null && (old.homeGoals !== row.homeGoals || old.awayGoals !== row.awayGoals);
     if (scoreChanged) changes.push({ type: 'score', fixture: row });
     else if (old.status !== row.status) changes.push({ type: 'status', fixture: row });
   }
@@ -38,9 +39,11 @@ function save(rows) {
 }
 
 function prune() {
-  const cutoff = Date.now() - 3 * 86400000;
+  const cutoff = Date.now() - 10 * DAY;
   for (const [id, f] of fixtures) if (f.kickoff < cutoff) fixtures.delete(id);
+  for (const [key, v] of dayCache) if (Date.now() - v.at > 2 * DAY) dayCache.delete(key);
 }
+setInterval(prune, 3600_000);
 
 const toRow = (x) => ({
   id: x.fixture.id,
@@ -58,6 +61,7 @@ const toRow = (x) => ({
 
 // ---------- Live push to phones and browsers ----------
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/live' });
 function broadcast(message) {
@@ -67,10 +71,8 @@ function broadcast(message) {
 
 // ---------- API-Football client ----------
 const usage = { day: '', count: 0 };
+const today = () => new Date().toISOString().slice(0, 10);
 const canSpend = (reserve = 0) => usage.day !== today() || usage.count < DAILY_LIMIT - reserve;
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 async function api(pathname, params = {}) {
   if (usage.day !== today()) Object.assign(usage, { day: today(), count: 0 });
@@ -97,16 +99,47 @@ async function cached(key, ttlMs, loader) {
   return value;
 }
 
-// ---------- Real data jobs ----------
-async function syncDays() {
-  for (const offset of [-1, 0, 1]) {
-    if (!canSpend(10)) return;
-    const date = new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
-    const items = await api('/fixtures', { date });
-    save(items.map(toRow));
+// ---------- Loading a day of matches ----------
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TZ_RE = /^(UTC|[A-Za-z_]+(\/[A-Za-z0-9_+-]+){1,2})$/;
+
+let planWindow = null; // { day, from, to } learned from the data provider when a day is not in the plan
+
+// Returns '' when fine, 'plan' when the data plan does not cover the day, 'error' for a temporary problem.
+async function loadDay(date, tz, from, to) {
+  const key = `${date}|${tz}`;
+  const now = Date.now();
+  const isPast = to <= now;
+  const isToday = from <= now && now < to;
+  const ttl = isPast ? 12 * 3600_000 : isToday ? 30 * 60_000 : 3 * 3600_000;
+  const hit = dayCache.get(key);
+  if (hit && now - hit.at < (hit.note ? 6 * 3600_000 : ttl)) return hit.note || '';
+
+  if (DEMO) {
+    demoDay(from, to);
+    dayCache.set(key, { at: now, note: '' });
+    return '';
   }
-  prune();
-  console.log(`Fixtures loaded: ${fixtures.size}`);
+  if (planWindow && planWindow.day === today() && (date < planWindow.from || date > planWindow.to)) {
+    dayCache.set(key, { at: now, note: 'plan' });
+    return 'plan';
+  }
+  if (!canSpend(10)) return 'error';
+  try {
+    const items = await api('/fixtures', { date, timezone: tz });
+    save(items.map(toRow));
+    dayCache.set(key, { at: now, note: '' });
+    return '';
+  } catch (err) {
+    console.error(`Day ${key} failed:`, err.message);
+    const note = /free plan|do not have access/i.test(err.message) ? 'plan' : 'error';
+    if (note === 'plan') {
+      const m = err.message.match(/(\d{4}-\d{2}-\d{2})\D+(\d{4}-\d{2}-\d{2})/);
+      if (m) planWindow = { day: today(), from: m[1], to: m[2] };
+    }
+    dayCache.set(key, { at: now, note });
+    return note;
+  }
 }
 
 function liveWindowOpen() {
@@ -121,11 +154,20 @@ function liveWindowOpen() {
 async function syncLive() {
   // One request returns every live match in the world.
   const items = await api('/fixtures', { live: 'all' });
-  const changes = save(items.map(toRow));
-  changes.forEach(broadcast);
+  save(items.map(toRow)).forEach(broadcast);
 }
 
 // ---------- Demo mode (no key needed) ----------
+const DEMO_TEAMS = [
+  ['Northgate United', 'Riverside Town', 'Harbor City', 'Eastfield Rovers', 'Kingsbridge', 'Oakhill Athletic'],
+  ['Costa Verde', 'Sierra FC', 'Lakeshore SC', 'Prairie FC', 'Rio Azul', 'Paulista FC'],
+].flat();
+const DEMO_LEAGUES = [
+  [39, 'Premier League', 'England'],
+  [140, 'La Liga', 'Spain'],
+  [71, 'Brasileirao', 'Brazil'],
+];
+
 function seedDemo() {
   const now = Date.now();
   const min = 60000;
@@ -137,10 +179,32 @@ function seedDemo() {
     mk(9002, 39, 'Premier League', 'England', 'Harbor City', 'Eastfield Rovers', 2, 2, '2H', 67, now - 82 * min),
     mk(9003, 39, 'Premier League', 'England', 'Kingsbridge', 'Oakhill Athletic', null, null, 'NS', null, now + 90 * min),
     mk(9004, 140, 'La Liga', 'Spain', 'Costa Verde', 'Sierra FC', 3, 1, 'FT', 90, now - 190 * min),
-    mk(9005, 135, 'Serie A', 'Italy', 'Bella Citta', 'Torre Calcio', null, null, 'NS', null, now + 150 * min),
-    mk(9006, 253, 'MLS', 'USA', 'Lakeshore SC', 'Prairie FC', null, null, 'NS', null, now + 240 * min),
+    mk(9005, 140, 'La Liga', 'Spain', 'Lakeshore SC', 'Prairie FC', null, null, 'NS', null, now + 150 * min),
     mk(9007, 71, 'Brasileirao', 'Brazil', 'Rio Azul', 'Paulista FC', 2, 0, 'FT', 90, now - 200 * min),
   ]);
+}
+
+function demoDay(from, to) {
+  const now = Date.now();
+  if (from <= now && now < to) return; // today is the live demo
+  const past = to <= now;
+  const d = Math.floor(from / DAY);
+  const rows = [];
+  for (let i = 0; i < 6; i++) {
+    const [leagueId, league, country] = DEMO_LEAGUES[i % 3];
+    rows.push({
+      id: 100000 + d * 10 + i,
+      leagueId, league, country,
+      home: DEMO_TEAMS[(d + i * 2) % 12],
+      away: DEMO_TEAMS[(d + i * 2 + 1) % 12],
+      homeGoals: past ? (d + i) % 4 : null,
+      awayGoals: past ? (d * 3 + i) % 3 : null,
+      status: past ? 'FT' : 'NS',
+      elapsed: past ? 90 : null,
+      kickoff: from + (11 + i * 2) * 3600_000,
+    });
+  }
+  save(rows);
 }
 
 function tickDemo() {
@@ -161,19 +225,68 @@ function tickDemo() {
   }
 }
 
+const SURNAMES = ['Ortega', 'Valdez', 'Nkemelu', 'Bauer', 'Kowal', 'Hargreaves', 'Mensah', 'Tanaka', 'Lindqvist', 'Duarte',
+  'Okafor', 'Brandt', 'Silveira', 'Novak', 'Petrov', 'Ionescu', 'Farrell', 'Costa', 'Moreau', 'Haddad',
+  'Reyes', 'Jansen', 'Kaya', 'Lombardi', 'Adeyemi', 'Sato', 'Fischer', 'Marino', 'Bell', 'Quinn'];
+const INITIALS = 'ABCDEFGHJKLMNPRST';
+const demoName = (seed) => `${INITIALS[seed % INITIALS.length]}. ${SURNAMES[(seed * 7 + 3) % SURNAMES.length]}`;
+
+function demoTeam(f, side) {
+  const base = (f.id % 50) * 23 + (side === 'home' ? 0 : 11);
+  const layout = [['G', 1, 1], ['D', 2, 1], ['D', 2, 2], ['D', 2, 3], ['D', 2, 4], ['M', 3, 1], ['M', 3, 2], ['M', 3, 3], ['F', 4, 1], ['F', 4, 2], ['F', 4, 3]];
+  const numbers = [1, 2, 4, 5, 3, 6, 8, 10, 7, 9, 11];
+  return {
+    team: side === 'home' ? f.home : f.away,
+    formation: '4-3-3',
+    coach: SURNAMES[(base + 5) % SURNAMES.length],
+    start: layout.map(([pos, r, c], i) => ({ name: demoName(base + i), number: numbers[i], pos, grid: `${r}:${c}` })),
+    subs: [12, 13, 14, 15, 16].map((n, i) => ({ name: demoName(base + 20 + i), number: n, pos: ['G', 'D', 'M', 'M', 'F'][i] })),
+  };
+}
+
+const demoLineups = (f) => (f.status === 'NS' ? [] : [demoTeam(f, 'home'), demoTeam(f, 'away')]);
+
+function demoPlayers(f) {
+  if (f.status === 'NS') return [];
+  return ['home', 'away'].map((side) => {
+    const t = demoTeam(f, side);
+    let goals = (side === 'home' ? f.homeGoals : f.awayGoals) || 0;
+    return {
+      team: t.team,
+      players: t.start.map((p, i) => {
+        const scored = p.pos === 'F' && goals > 0;
+        if (scored) goals -= 1;
+        return {
+          name: p.name, number: p.number, pos: p.pos,
+          minutes: Math.min(90, f.elapsed ?? 90),
+          rating: Number((6 + ((f.id + i * 3 + (side === 'home' ? 0 : 1)) % 30) / 10).toFixed(1)),
+          goals: scored ? 1 : 0, assists: 0,
+          shots: p.pos === 'F' ? 2 : p.pos === 'M' ? 1 : 0, onTarget: p.pos === 'F' ? 1 : 0,
+          keyPasses: p.pos === 'M' ? 2 : 0, yellow: 0, red: 0,
+        };
+      }),
+    };
+  });
+}
+
 function demoDetail(f) {
   if (f.status === 'NS') return { events: [], stats: [] };
   const elapsed = f.elapsed ?? 90;
+  const home = demoTeam(f, 'home');
+  const away = demoTeam(f, 'away');
   const events = [];
-  const addGoals = (n, team, shift) => {
+  const addGoals = (n, t, shift) => {
+    const fwd = t.start.filter((p) => p.pos === 'F');
+    const mid = t.start.filter((p) => p.pos === 'M');
     for (let i = 0; i < (n || 0); i++) {
       const minute = Math.min(elapsed, Math.max(1, Math.floor(((i + 1) / ((n || 0) + 1)) * elapsed) + shift));
-      events.push({ minute, team, type: 'Goal', detail: 'Normal Goal', player: null });
+      events.push({ minute, team: t.team, type: 'Goal', detail: 'Normal Goal', player: fwd[i % 3].name, assist: mid[i % 3].name });
     }
   };
-  addGoals(f.homeGoals, f.home, 0);
-  addGoals(f.awayGoals, f.away, 3);
-  if (elapsed > 20) events.push({ minute: Math.floor(elapsed / 2), team: f.away, type: 'Card', detail: 'Yellow Card', player: null });
+  addGoals(f.homeGoals, home, 0);
+  addGoals(f.awayGoals, away, 3);
+  if (elapsed > 20) events.push({ minute: Math.floor(elapsed / 2), team: away.team, type: 'Card', detail: 'Yellow Card', player: away.start[3].name, assist: null });
+  if (elapsed > 62) events.push({ minute: 61, team: home.team, type: 'subst', detail: 'Substitution 1', player: home.start[9].name, assist: home.subs[4].name });
   events.sort((a, b) => a.minute - b.minute);
   const s = f.id % 7;
   const stats = [
@@ -214,21 +327,37 @@ async function loadNews() {
   return all.sort((a, b) => (b.published ?? '').localeCompare(a.published ?? '')).slice(0, 40);
 }
 
-// ---------- Web addresses the app uses ----------
 const wrap = (fn) => (req, res) =>
   fn(req, res).catch((err) => {
     console.error(err.message);
     res.status(502).json({ error: 'Data is unavailable right now' });
   });
 
-app.get('/api/matches', (req, res) => {
-  const from = Number(req.query.from) || Date.parse(`${today()}T00:00:00Z`);
-  const to = Number(req.query.to) || from + 86400000;
-  const rows = [...fixtures.values()]
+// ---------- Web addresses the app uses ----------
+app.use((_req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Referrer-Policy', 'no-referrer');
+  next();
+});
+
+app.get('/api/matches', wrap(async (req, res) => {
+  const now = Date.now();
+  let from = Number(req.query.from);
+  let to = Number(req.query.to);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 26 * 3600_000) {
+    from = Date.parse(`${today()}T00:00:00Z`);
+    to = from + DAY;
+  }
+  if (from < now - 400 * DAY || from > now + 400 * DAY) return res.status(400).json({ error: 'That day is out of range' });
+  const date = DATE_RE.test(String(req.query.date)) ? String(req.query.date) : new Date(from).toISOString().slice(0, 10);
+  const tz = TZ_RE.test(String(req.query.tz)) ? String(req.query.tz) : 'UTC';
+
+  const note = await loadDay(date, tz, from, to);
+  const matches = [...fixtures.values()]
     .filter((f) => f.kickoff >= from && f.kickoff < to)
     .sort((a, b) => a.league.localeCompare(b.league) || a.kickoff - b.kickoff);
-  res.json(rows);
-});
+  res.json({ matches, note });
+}));
 
 app.get('/api/matches/:id', wrap(async (req, res) => {
   const id = Number(req.params.id);
@@ -241,7 +370,7 @@ app.get('/api/matches/:id', wrap(async (req, res) => {
   const events = await cached(`events:${id}`, ttl, async () => {
     const list = await api('/fixtures/events', { fixture: id });
     return list.map((e) => ({
-      minute: e.time.elapsed, team: e.team.name, type: e.type, detail: e.detail, player: e.player?.name ?? null,
+      minute: e.time.elapsed, team: e.team.name, type: e.type, detail: e.detail, player: e.player?.name ?? null, assist: e.assist?.name ?? null,
     }));
   });
   const stats = await cached(`stats:${id}`, ttl, async () => {
@@ -250,6 +379,57 @@ app.get('/api/matches/:id', wrap(async (req, res) => {
     return list[0].statistics.map((s, i) => ({ type: s.type, home: s.value, away: list[1].statistics[i]?.value ?? null }));
   });
   res.json({ fixture, events, stats });
+}));
+
+app.get('/api/matches/:id/lineups', wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const fixture = fixtures.get(id);
+  if (!fixture) return res.status(404).json({ error: 'Match not found' });
+  if (DEMO) return res.json({ lineups: demoLineups(fixture) });
+  const lineups = await cached(`lineups:${id}`, 10 * 60_000, async () => {
+    const list = await api('/fixtures/lineups', { fixture: id });
+    return list.map((t) => ({
+      team: t.team.name,
+      formation: t.formation ?? null,
+      coach: t.coach?.name ?? null,
+      start: (t.startXI || []).map((x) => ({ name: x.player.name, number: x.player.number, pos: x.player.pos, grid: x.player.grid ?? null })),
+      subs: (t.substitutes || []).map((x) => ({ name: x.player.name, number: x.player.number, pos: x.player.pos })),
+    }));
+  });
+  res.json({ lineups });
+}));
+
+app.get('/api/matches/:id/players', wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const fixture = fixtures.get(id);
+  if (!fixture) return res.status(404).json({ error: 'Match not found' });
+  if (DEMO) return res.json({ teams: demoPlayers(fixture) });
+  if (fixture.status === 'NS') return res.json({ teams: [] });
+  const ttl = isLive(fixture.status) ? 60_000 : 60 * 60_000;
+  const teams = await cached(`players:${id}`, ttl, async () => {
+    const list = await api('/fixtures/players', { fixture: id });
+    return list.map((t) => ({
+      team: t.team.name,
+      players: (t.players || []).map((p) => {
+        const st = (p.statistics && p.statistics[0]) || {};
+        return {
+          name: p.player.name,
+          number: st.games?.number ?? null,
+          pos: st.games?.position ?? null,
+          minutes: st.games?.minutes ?? 0,
+          rating: st.games?.rating ? Number(st.games.rating) : null,
+          goals: st.goals?.total ?? 0,
+          assists: st.goals?.assists ?? 0,
+          shots: st.shots?.total ?? 0,
+          onTarget: st.shots?.on ?? 0,
+          keyPasses: st.passes?.key ?? 0,
+          yellow: st.cards?.yellow ?? 0,
+          red: st.cards?.red ?? 0,
+        };
+      }).filter((p) => p.minutes > 0 || p.rating !== null),
+    }));
+  });
+  res.json({ teams });
 }));
 
 app.get('/api/standings/:leagueId', wrap(async (req, res) => {
@@ -263,6 +443,35 @@ app.get('/api/standings/:leagueId', wrap(async (req, res) => {
     return rows.map((r) => ({ rank: r.rank, team: r.team.name, played: r.all.played, goalDiff: r.goalsDiff, points: r.points }));
   });
   res.json(table);
+}));
+
+// Finds teams by name so people can add favorites. Uses teams already seen in loaded matches first.
+let teamSearchDay = { day: '', n: 0 };
+app.get('/api/teams', wrap(async (req, res) => {
+  const q = String(req.query.q ?? '').trim().toLowerCase().slice(0, 40);
+  if (q.length < 2) return res.json({ teams: [] });
+  const found = new Map();
+  for (const f of fixtures.values()) {
+    for (const name of [f.home, f.away]) if (name.toLowerCase().includes(q) && !found.has(name)) found.set(name, f.league);
+  }
+  const teams = [...found].map(([name, league]) => ({ name, league }));
+  const apiQuery = q.replace(/[^a-z0-9 ]/g, '').trim();
+  if (!DEMO && apiQuery.length >= 3 && teams.length < 5 && canSpend(20)) {
+    try {
+      const extra = await cached(`teams:${apiQuery}`, 24 * 3600_000, async () => {
+        if (teamSearchDay.day !== today()) teamSearchDay = { day: today(), n: 0 };
+        if (teamSearchDay.n >= 15) return [];
+        teamSearchDay.n += 1;
+        const list = await api('/teams', { search: apiQuery });
+        return list.map((x) => ({ name: x.team.name, league: x.team.country || '' }));
+      });
+      for (const t of extra) if (!teams.some((x) => x.name === t.name)) teams.push(t);
+    } catch (err) {
+      console.error('Team search failed:', err.message);
+    }
+  }
+  teams.sort((a, b) => a.name.localeCompare(b.name));
+  res.json({ teams: teams.slice(0, 20) });
 }));
 
 app.get('/api/news', wrap(async (_req, res) => {
@@ -282,12 +491,11 @@ if (DEMO) {
   setInterval(tickDemo, 15_000);
   console.log('DEMO MODE: no API_KEY set, showing sample matches.');
 } else {
-  const safe = (fn) => () => fn().catch((e) => console.error(e.message));
-  safe(syncDays)();
-  setInterval(safe(syncDays), 3 * 3600_000);
-  setInterval(safe(async () => {
-    if (liveWindowOpen() && canSpend(10)) await syncLive();
-  }), LIVE_POLL_SECONDS * 1000);
+  setInterval(() => {
+    if (wss.clients.size > 0 && liveWindowOpen() && canSpend(10)) {
+      syncLive().catch((e) => console.error('Live sync failed:', e.message));
+    }
+  }, LIVE_POLL_SECONDS * 1000);
 }
 
 server.listen(PORT, () => console.log(`Football Tracker running on port ${PORT}`));
