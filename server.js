@@ -5,6 +5,7 @@ import express from 'express';
 import Parser from 'rss-parser';
 import { WebSocketServer } from 'ws';
 import { rowFromMatch, mapEvents, mapStats, mapLineups, mapBoxScore, mapStandings, safeUrl } from './highlightly.js';
+import { buildIndex, annotate } from './newsmatch.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,6 +13,7 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 const API_KEY = process.env.API_KEY || '';                              // API-Football key. Empty = demo mode
 const PORT = process.env.PORT || 3000;
 const NEWS_FEEDS = process.env.NEWS_FEEDS || '';                        // comma-separated RSS feed links
+const NEWS_IMAGES = process.env.NEWS_IMAGES || 'publisher';             // publisher = photos from the feeds + club badges, crests = club badges only, off = no pictures
 const DAILY_LIMIT = Number(process.env.DAILY_LIMIT || 100);             // your plan's requests per day
 const LIVE_POLL_SECONDS = Number(process.env.LIVE_POLL_SECONDS || 300); // 300 suits the free plan
 const ERROR_RETRY_SECONDS = Number(process.env.ERROR_RETRY_SECONDS || 45); // wait before retrying after a temporary problem
@@ -486,26 +488,57 @@ const DEMO_TABLE = [
 ].map(([team, played, goalDiff, points], i) => ({ rank: i + 1, team, logo: demoCrest(team), played, goalDiff, points }));
 
 const DEMO_NEWS = [
-  { title: 'Demo mode: headlines from your news feeds show up here', link: '', source: 'Demo', published: new Date().toISOString() },
-  { title: 'Add a news feed link in your settings to see real headlines', link: '', source: 'Demo', published: new Date().toISOString() },
-];
+  ['Northgate United edge Riverside Town in a five-goal thriller', 'Premier League'],
+  ['Premier League title race tightens as Harbor City close the gap', 'Premier League'],
+  ['Kingsbridge confirm a new striker signing before the deadline', 'Premier League'],
+  ['La Liga: Costa Verde extend their lead with a late winner', 'La Liga'],
+  ['Sierra FC appoint a new coach after a poor run of form', 'La Liga'],
+  ['Rio Azul beat Paulista FC to move up the Brasileirao table', 'Brasileirao'],
+  ['Transfer window round-up: the biggest moves so far', 'Transfers'],
+  ['Demo mode: add your news feed links in your settings to see real headlines', 'Demo'],
+].map(([title, tag], i) => ({ title, link: '', source: 'Demo', published: new Date(Date.now() - i * 3600_000).toISOString(), tags: [tag] }));
 
 // ---------- News (headlines and links only) ----------
-const parser = new Parser();
+const parser = new Parser({
+  customFields: { item: [['media:thumbnail', 'mediaThumbnail'], ['media:content', 'mediaContent', { keepArray: true }], ['content:encoded', 'contentEncoded']] },
+});
+
+// Finds the picture a publisher attached to a headline (only a web address is kept; the picture itself stays on their server).
+function feedImage(item) {
+  const found = [];
+  const th = item.mediaThumbnail;
+  if (th) found.push({ url: th?.$?.url ?? th?.url, width: Number(th?.$?.width) || 0 });
+  const mc = Array.isArray(item.mediaContent) ? item.mediaContent : item.mediaContent ? [item.mediaContent] : [];
+  for (const m of mc) {
+    const kind = m?.$?.type || m?.$?.medium || '';
+    if (m?.$?.url && (!kind || /image/i.test(kind))) found.push({ url: m.$.url, width: Number(m.$.width) || 0 });
+  }
+  if (item.enclosure?.url && /image/i.test(item.enclosure.type ?? '')) found.push({ url: item.enclosure.url, width: 0 });
+  const html = item.contentEncoded || item.content || '';
+  const tag = /<img[^>]+src=["']([^"']+)["']/i.exec(html);
+  if (tag) found.push({ url: tag[1], width: 0 });
+  const good = found.map((f) => ({ ...f, url: safeUrl(f.url) })).filter((f) => f.url);
+  // Prefer a picture that is big enough to look sharp but not huge.
+  good.sort((a, b) => Math.abs((a.width || 480) - 480) - Math.abs((b.width || 480) - 480));
+  return good.length ? good[0].url : '';
+}
 async function loadNews() {
   const feeds = NEWS_FEEDS.split(',').map((s) => s.trim()).filter(Boolean);
   const all = [];
   for (const url of feeds) {
     try {
       const feed = await parser.parseURL(url);
-      for (const item of feed.items.slice(0, 15)) {
-        all.push({ title: item.title, link: item.link, source: feed.title, published: item.isoDate ?? null });
+      for (const item of feed.items.slice(0, 30)) {
+        const tags = (Array.isArray(item.categories) ? item.categories : []).map((c) => String(c).slice(0, 40)).slice(0, 8);
+        all.push({ title: item.title, link: item.link, source: feed.title, published: item.isoDate ?? null, tags, image: feedImage(item) });
       }
     } catch (err) {
       console.error('News feed failed:', url, err.message);
     }
   }
-  return all.sort((a, b) => (b.published ?? '').localeCompare(a.published ?? '')).slice(0, 40);
+  const seen = new Set();
+  const unique = all.filter((n) => n.title && (n.link ? !seen.has(n.link) && seen.add(n.link) : true));
+  return unique.sort((a, b) => (b.published ?? '').localeCompare(a.published ?? '')).slice(0, 120);
 }
 
 const wrap = (fn) => (req, res) =>
@@ -758,9 +791,13 @@ app.get('/api/leagues', (req, res) => {
   res.json({ leagues: list.slice(0, 30).map(({ n, ...l }) => l) });
 });
 
+let newsIndex = { at: 0, value: null };
 app.get('/api/news', wrap(async (_req, res) => {
-  if (DEMO && !NEWS_FEEDS) return res.json(DEMO_NEWS);
-  res.json(await cached('news', 10 * 60_000, loadNews));
+  const items = DEMO && !NEWS_FEEDS ? DEMO_NEWS : await cached('news', 10 * 60_000, loadNews);
+  if (NEWS_IMAGES === 'off') return res.json(items.map(({ image, ...rest }) => rest));
+  if (Date.now() - newsIndex.at > 60_000) newsIndex = { at: Date.now(), value: buildIndex(fixtures.values()) };
+  const withBadges = annotate(items, newsIndex.value);
+  res.json(NEWS_IMAGES === 'crests' ? withBadges.map(({ image, ...rest }) => rest) : withBadges);
 }));
 
 app.get('/api/health', (_req, res) => {

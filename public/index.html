@@ -78,8 +78,6 @@ h1{margin:2px 0 0;font-family:var(--display);font-size:44px;line-height:1;font-w
 .news .meta{display:flex;gap:10px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
 .news .meta span+span{font-weight:500;color:var(--muted)}
 .news .t{font-size:17px;line-height:1.3;font-weight:700}
-.news.first{background:var(--accent);color:#0E1512}.news.first .meta,.news.first .meta span+span{color:#26330A}
-.news.first .t{font-family:var(--display);font-size:32px;line-height:1.05}
 nav{flex-shrink:0;display:flex;background:#111B16;border-top:1px solid #1E2C25;padding:6px 8px calc(8px + env(safe-area-inset-bottom))}
 nav button{flex:1;min-height:56px;border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:12px;font-weight:700;color:var(--muted)}
 nav button.on{color:var(--accent)}
@@ -244,7 +242,6 @@ button.prow,.prow{min-height:48px;gap:10px;padding:4px}
 .news{padding:12px 14px;margin-bottom:8px;border-radius:12px}
 .news .meta{font-size:11px;margin-bottom:6px}
 .news .t{font-size:15px}
-.news.first .t{font-size:24px}
 .trow{min-height:44px;font-size:14px}
 .sw{width:44px;height:26px;border-radius:13px}
 .sw::after{top:3px;left:3px;width:20px;height:20px}
@@ -264,6 +261,35 @@ nav button svg{width:21px;height:21px}
 .pinfo b{font-size:17px}
 .stgrid{font-size:14px}
 .stgrid > div{padding:9px 0}
+
+.tag{display:inline-block;background:#1B2A23;color:var(--accent);border-radius:8px;padding:2px 8px;font-size:11px;font-weight:700;margin:6px 6px 0 0}
+.tags{margin-top:0}
+.trackrow{display:flex;align-items:center;gap:8px;padding:0 12px 8px}
+.tchips{display:flex;gap:6px;overflow-x:auto;flex:1;min-width:0;align-items:center;scrollbar-width:none}
+.tchips::-webkit-scrollbar{display:none}
+.tchips.wrap{flex-wrap:wrap;overflow:visible;margin:10px 0}
+.tchip{flex-shrink:0;display:inline-flex;align-items:center;gap:4px;min-height:28px;padding:0 10px;border-radius:14px;background:#1B2A23;color:var(--soft);font-size:12px;font-weight:700;white-space:nowrap}
+.tchip.star{color:var(--accent)}
+.tchip button{border:0;background:none;color:var(--muted);font-size:16px;line-height:1;padding:0 0 0 2px;min-width:24px;min-height:28px}
+.tpanel{margin:0 12px 10px;padding:12px;border-radius:14px;background:var(--card)}
+
+/* ---- news cards: alternating green and cream, with a picture ---- */
+.news{display:flex;gap:12px;align-items:flex-start;padding:12px;margin-bottom:8px;border-radius:14px;min-height:96px}
+.news .nbody{flex:1;min-width:0}
+.news .meta{margin-bottom:5px}
+.news .t{font-size:15px;line-height:1.3}
+.news.c0{background:#1F4D34;color:#EAF3EC}
+.news.c0 .meta,.news.c0 .meta span+span{color:#A9D1B5}
+.news.c0 .tag{background:rgba(255,255,255,.14);color:#DFF58A}
+.news.c1{background:#F3EAD3;color:#18241C}
+.news.c1 .meta,.news.c1 .meta span+span{color:#7A6F4F}
+.news.c1 .tag{background:#E3D8B8;color:#2B4A35}
+.nimg{position:relative;width:84px;height:84px;flex-shrink:0;border-radius:10px;overflow:hidden;background:#EEF2EF;display:flex;align-items:center;justify-content:center}
+.news.c1 .nimg{background:#FBF6E8}
+.nimg img{position:absolute;inset:0;width:100%;height:100%}
+.nimg .nu{object-fit:contain;padding:16%}
+.nimg .np{object-fit:cover}
+.nimg .ball{width:54%;height:54%;color:#9DB3A5}
 #toast{position:fixed;top:calc(12px + env(safe-area-inset-top));left:16px;right:16px;max-width:528px;margin:0 auto;z-index:10;display:none;min-height:52px;border:0;border-radius:14px;background:var(--accent);color:#0E1512;font-size:15px;font-weight:700;padding:0 16px;align-items:center;justify-content:space-between;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 #toast.show{display:flex}
 </style>
@@ -296,6 +322,8 @@ function loadFav() {
     matches: (Array.isArray(raw.matches) ? raw.matches : [])
       .filter((m) => m && Number.isFinite(m.id) && Number(m.kickoff) > now - 3 * DAY_MS).slice(0, 50)
       .map((m) => ({ id: m.id, home: str(m.home), away: str(m.away), league: str(m.league), kickoff: Number(m.kickoff) })),
+    newsTeams: Array.isArray(raw.newsTeams) ? [...new Set(raw.newsTeams.map(str).filter(Boolean))].slice(0, 30) : [],
+    newsLeagues: Array.isArray(raw.newsLeagues) ? [...new Set(raw.newsLeagues.map(str).filter(Boolean))].slice(0, 30) : [],
     alerts: {
       goals: a.goals !== false, kickoff: a.kickoff !== false, halftime: a.halftime !== false, fulltime: a.fulltime !== false
     },
@@ -306,7 +334,7 @@ let fav = loadFav();
 const saveFav = () => keep.set('ft_fav', JSON.stringify(fav));
 
 const state = {
-  tab: 'today', filter: 'all', mq: '', player: null, league: null, season: null, leagues: null, lq: '', view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
+  tab: 'today', filter: 'all', mq: '', player: null, newsFilter: 'all', trackOpen: false, nq: '', nres: null, league: null, season: null, leagues: null, lq: '', view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
   days: {}, detail: null, table: null, news: null,
   demo: false, error: '',
   tq: '', tres: null, confirmClear: false,
@@ -682,17 +710,136 @@ function tablesView() {
     <div class="scroll">${body}</div></div>`;
 }
 
+// ----- Personalised news: matches headlines against your teams and leagues -----
+const CLUB_SUFFIX = new Set(['fc', 'cf', 'afc', 'sc', 'ac', 'ssc', 'fk', 'sk', 'bk', 'if', 'club', 'calcio', 'de', 'the', 'sv', 'vfb', 'vfl', 'rc', 'cd', 'ud', 'sd']);
+const GENERIC_TAIL = new Set(['united', 'city', 'town', 'rovers', 'athletic', 'wanderers', 'hotspur', 'albion', 'county', 'rangers']);
+const AMBIGUOUS = new Set(['manchester', 'sheffield', 'real', 'west', 'nottingham', 'atletico', 'borussia', 'olympique', 'inter', 'paris', 'san', 'saint', 'st', 'north', 'south', 'east']);
+const CLUB_ALIASES = {
+  'manchester united': ['man united', 'man utd'], 'manchester city': ['man city'], 'tottenham hotspur': ['tottenham', 'spurs'],
+  'wolverhampton wanderers': ['wolves', 'wolverhampton'], 'newcastle united': ['newcastle'], 'brighton and hove albion': ['brighton'],
+  'west ham united': ['west ham'], 'paris saint germain': ['psg'], 'bayern munich': ['bayern'], 'borussia dortmund': ['dortmund'],
+  'juventus': ['juve'], 'barcelona': ['barca'], 'atletico madrid': ['atletico', 'atleti'], 'internazionale': ['inter milan'], 'ac milan': ['milan']
+};
+const LEAGUE_ALIASES = { 'la liga': ['laliga'], 'primera division': ['la liga', 'laliga'], 'major league soccer': ['mls'], 'brasileirao': ['brasileirao'], 'efl championship': ['championship'] };
+const plainText = (t) => norm(t).replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+
+function teamTerms(name) {
+  const words = plainText(name).split(' ').filter((w) => w && !CLUB_SUFFIX.has(w));
+  const base = words.join(' ');
+  const out = new Set([base]);
+  (CLUB_ALIASES[base] || []).forEach((a) => out.add(a));
+  if (words.length >= 2 && GENERIC_TAIL.has(words[words.length - 1]) && !AMBIGUOUS.has(words[0])) {
+    const short = words.slice(0, -1).join(' ');
+    if (short.length >= 5) out.add(short);
+  }
+  return [...out].filter((t) => t.length >= 3);
+}
+function leagueTerms(name) {
+  const n = plainText(name).replace(/^(uefa|fifa|efl|conmebol|afc|caf) /, '');
+  const out = new Set([n]);
+  (LEAGUE_ALIASES[n] || []).forEach((a) => out.add(a));
+  return [...out].filter((t) => t.length >= 4);
+}
+const trackedTeams = () => [...new Set([...fav.teams, ...fav.newsTeams])];
+
+function classifyNews(items) {
+  const teams = trackedTeams().map((name) => ({ name, terms: teamTerms(name) }));
+  const leagues = fav.newsLeagues.map((name) => ({ name, terms: leagueTerms(name) }));
+  return items.map((n) => {
+    const text = ` ${plainText(`${n.title} ${(n.tags || []).join(' ')}`)} `;
+    const has = (t) => t.terms.some((x) => text.includes(` ${x} `));
+    return { n, teamHits: teams.filter(has).map((t) => t.name), leagueHits: leagues.filter(has).map((l) => l.name) };
+  });
+}
+
+// A club's badge, from the matches loaded on this phone.
+function logoForTeam(name) {
+  for (const r of Object.values(state.days)) for (const m of (r && r.matches) || []) {
+    if (m.home === name && okImg(m.homeLogo)) return m.homeLogo;
+    if (m.away === name && okImg(m.awayLogo)) return m.awayLogo;
+  }
+  return '';
+}
+const ballIcon = '<svg class="ball" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8l3.2 2.3-1.2 3.7h-4L8.8 10.3z"/><path d="M12 8V3.2M15.2 10.3l4.4-1.4M14 14l2.8 3.6M10 14l-2.8 3.6M8.8 10.3L4.4 8.9"/></svg>';
+
+// Picture for a headline: the publisher's photo when the feed has one, on top of the club badge, so the badge shows if the photo cannot load.
+function newsThumb(row) {
+  const x = row.n;
+  const badge = (row.teamHits[0] && logoForTeam(row.teamHits[0])) || x.teamLogo || x.leagueLogo || '';
+  const under = okImg(badge)
+    ? `<img class="nu" src="${esc(badge)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()">`
+    : ballIcon;
+  const photo = okImg(x.image)
+    ? `<img class="np" src="${esc(x.image)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()">`
+    : '';
+  return `<span class="nimg">${under}${photo}</span>`;
+}
+
+function newsCard(row, index) {
+  const x = row.n;
+  const ago = x.published ? new Date(x.published).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '';
+  const names = [...row.teamHits.slice(0, 2), ...row.leagueHits.slice(0, 1)];
+  if (!names.length && x.teamName) names.push(x.teamName);
+  const tags = names.map((t) => `<span class="tag">${esc(t)}</span>`).join('');
+  const inner = `<div class="nbody"><div class="meta"><span>${esc(x.source || 'News')}</span><span>${esc(ago)}</span></div><div class="t">${esc(x.title)}</div>${tags ? `<div class="tags">${tags}</div>` : ''}</div>${newsThumb(row)}`;
+  const cls = `news ${index % 2 === 0 ? 'c0' : 'c1'}`;
+  return x.link ? `<a class="${cls}" href="${esc(x.link)}" target="_blank" rel="noopener">${inner}</a>` : `<div class="${cls}">${inner}</div>`;
+}
+
+function trackChips(removable) {
+  const chip = (name, kind, canRemove) => `<span class="tchip ${kind === 'f' ? 'star' : ''}">${kind === 'f' ? '★ ' : kind === 'l' ? '' : ''}${esc(name)}${canRemove && removable ? `<button aria-label="Stop tracking ${esc(name)}" data-untrack-kind="${kind}" data-untrack-name="${esc(name)}">×</button>` : ''}</span>`;
+  return [...fav.teams.map((t) => chip(t, 'f', false)), ...fav.newsTeams.filter((t) => !fav.teams.includes(t)).map((t) => chip(t, 't', true)), ...fav.newsLeagues.map((l) => chip(l, 'l', true))].join('');
+}
+
+function newsResultsHtml() {
+  const q = state.nq.trim();
+  if (q.length < 2) return '';
+  if (state.nres === null) return '<div class="note tight">Searching…</div>';
+  const teams = state.nres.teams.slice(0, 5), leagues = state.nres.leagues.slice(0, 4);
+  const rows = [
+    ...teams.map((t) => ({ label: t.name, sub: t.league, logo: t.logo, attr: `data-track-team="${esc(t.name)}"`, kind: 'Team', on: trackedTeams().includes(t.name) })),
+    ...leagues.map((l) => ({ label: l.name, sub: l.country, logo: '', attr: `data-track-league="${esc(l.name)}"`, kind: 'League', on: fav.newsLeagues.includes(l.name) })),
+    { label: `“${q}”`, sub: 'Track this word or name', logo: '', attr: `data-track-word="${esc(q)}"`, kind: 'Keyword', on: fav.newsTeams.includes(q) }
+  ];
+  return rows.map((r) => `<button class="frow linkrow" ${r.attr}><span class="tl">${r.logo ? crest(r.label, r.logo) : ''}<span>${esc(r.label)}<br><span class="muted">${esc(r.sub || '')}</span></span></span><span class="muted">${r.on ? 'Tracking ✓' : '+ ' + r.kind}</span></button>`).join('');
+}
+
 function newsView() {
-  const n = state.news;
+  const items = state.news;
+  const anyTracked = trackedTeams().length + fav.newsLeagues.length > 0;
   let body;
-  if (!n) body = `<div class="note">${esc(state.error || 'Loading news…')}</div>`;
-  else if (!n.length) body = '<div class="note">No news feeds are set up yet. Add feed links in your settings and headlines will show here.</div>';
-  else body = n.map((x, i) => {
-    const ago = x.published ? new Date(x.published).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '';
-    const inner = `<div class="meta"><span>${esc(x.source || 'News')}</span><span>${esc(ago)}</span></div><div class="t">${esc(x.title)}</div>`;
-    return x.link ? `<a class="news ${i === 0 ? 'first' : ''}" href="${esc(x.link)}" target="_blank" rel="noopener">${inner}</a>` : `<div class="news ${i === 0 ? 'first' : ''}">${inner}</div>`;
-  }).join('');
-  return `<div class="screen"><div class="head"><div class="eyebrow">Latest headlines</div><h1>News</h1></div><div class="scroll">${body}</div></div>`;
+  if (!items) body = `<div class="note">${esc(state.error || 'Loading news…')}</div>`;
+  else if (!items.length) body = '<div class="note">No news feeds are set up yet. Add feed links in your settings and headlines will show here.</div>';
+  else {
+    const rows = classifyNews(items);
+    const mineTeams = rows.filter((r) => r.teamHits.length);
+    const mineLeagues = rows.filter((r) => !r.teamHits.length && r.leagueHits.length);
+    const others = rows.filter((r) => !r.teamHits.length && !r.leagueHits.length);
+    const label = (t) => `<div class="eyebrow" style="margin:10px 4px 8px">${t}</div>`;
+    let count = 0;
+    const list = (r) => r.map((x) => newsCard(x, count++)).join('');
+    if (state.newsFilter === 'teams') body = mineTeams.length ? list(mineTeams) : '<div class="note">No headlines about your teams right now.</div>';
+    else if (state.newsFilter === 'leagues') {
+      const inLeagues = rows.filter((r) => r.leagueHits.length);
+      body = inLeagues.length ? list(inLeagues) : '<div class="note">No headlines about your leagues right now.</div>';
+    } else {
+      body = (anyTracked ? '' : '<div class="banner">Follow teams, or tap “+ Track” above, to see your own teams and leagues first.</div>')
+        + (mineTeams.length ? label('Your teams') + list(mineTeams) : '')
+        + (mineLeagues.length ? label('Your leagues') + list(mineLeagues) : '')
+        + (others.length ? (mineTeams.length || mineLeagues.length ? label('More football news') : '') + list(others) : '');
+    }
+  }
+  const panel = state.trackOpen
+    ? `<div class="tpanel"><input class="inp" id="nq" type="search" autocomplete="off" autocapitalize="off" placeholder="Search a team or league to track" value="${esc(state.nq)}">
+        <div id="nres">${newsResultsHtml()}</div>
+        <div class="tchips wrap">${trackChips(true) || '<span class="muted">Nothing tracked yet.</span>'}</div>
+        <div class="fine">Followed teams (★) are tracked automatically. Manage them in Favorites.</div>
+        <div class="row2"><button class="ghost" data-track-toggle>Done</button></div></div>`
+    : `<div class="trackrow"><div class="tchips">${trackChips(false) || '<span class="muted">No teams or leagues tracked yet</span>'}</div><button class="ghost" data-track-toggle>+ Track</button></div>`;
+  return `<div class="screen"><div class="head"><div class="eyebrow">Latest headlines</div><h1>News</h1></div>
+    ${panel}
+    ${chips([['all', 'All'], ['teams', 'My teams'], ['leagues', 'My leagues']], (v) => state.newsFilter === v, 'nfilter')}
+    <div class="scroll">${body}</div></div>`;
 }
 
 function teamResultsHtml() {
@@ -750,6 +897,9 @@ function buildHash() {
     path = 'tables';
     if (state.league) p.set('l', state.league);
     if (state.season) p.set('s', state.season);
+  } else if (state.tab === 'news') {
+    path = 'news';
+    if (state.newsFilter !== 'all') p.set('f', state.newsFilter);
   } else path = state.tab;
   const qs = p.toString();
   return '#/' + path + (qs ? '?' + qs : '');
@@ -780,7 +930,10 @@ function applyHash(h, allowMatch) {
   } else if (page === 'tables') {
     state.tab = 'tables';
     if (p.get('l')) { state.league = p.get('l'); state.season = p.get('s') || null; }
-  } else if (page === 'news') state.tab = 'news';
+  } else if (page === 'news') {
+    state.tab = 'news';
+    if (['teams', 'leagues'].includes(p.get('f'))) state.newsFilter = p.get('f');
+  }
   else if (page === 'favorites') state.tab = 'favorites';
   else if (page === 'match' && id && allowMatch) {
     state.tab = 'today'; state.day = offsetFromDate(p.get('d'));
@@ -872,6 +1025,32 @@ async function loadTable() {
   } catch { state.error = 'This table is unavailable right now.'; }
   if (state.tab === 'tables' && !state.matchId) render();
 }
+let newsTimer;
+function searchNews() {
+  clearTimeout(newsTimer);
+  const q = state.nq.trim();
+  const box = document.getElementById('nres');
+  if (q.length < 2) { state.nres = null; if (box) box.innerHTML = ''; return; }
+  state.nres = null; if (box) box.innerHTML = newsResultsHtml();
+  newsTimer = setTimeout(async () => {
+    let teams = [], leagues = [];
+    try { teams = (await call(`/api/teams?q=${encodeURIComponent(q)}`)).teams; } catch {}
+    try { leagues = (await call(`/api/leagues?q=${encodeURIComponent(q)}`)).leagues; } catch {}
+    if (state.nq.trim() !== q) return;
+    state.nres = { teams, leagues };
+    const b2 = document.getElementById('nres'); if (b2) b2.innerHTML = newsResultsHtml();
+  }, 300);
+}
+function trackAdd(kind, name) {
+  const list = kind === 'league' ? fav.newsLeagues : fav.newsTeams;
+  if (name && !list.includes(name) && list.length < 30) list.push(name);
+  saveFav(); render();
+}
+function trackRemove(kind, name) {
+  if (kind === 'l') fav.newsLeagues = fav.newsLeagues.filter((x) => x !== name);
+  else fav.newsTeams = fav.newsTeams.filter((x) => x !== name);
+  saveFav(); render();
+}
 let leagueTimer;
 function searchLeagues() { clearTimeout(leagueTimer); leagueTimer = setTimeout(loadLeagues, 300); }
 async function loadNews() {
@@ -911,10 +1090,21 @@ function closeCal() { state.cal = null; render(); }
 function pickDay(off) { state.cal = null; setDay(off); }
 
 // ---------- Favorites (kept on this device) ----------
+// The league a club plays in most often, from the matches loaded so far.
+function leagueOfTeam(name) {
+  const count = {};
+  for (const r of Object.values(state.days)) for (const m of (r && r.matches) || []) if (m.home === name || m.away === name) count[m.league] = (count[m.league] || 0) + 1;
+  const top = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+  return top ? top[0] : null;
+}
 function toggleTeam(name) {
   const i = fav.teams.indexOf(name);
   if (i >= 0) fav.teams.splice(i, 1);
-  else if (fav.teams.length < 50) fav.teams.push(name);
+  else if (fav.teams.length < 50) {
+    fav.teams.push(name);
+    const lg = leagueOfTeam(name);
+    if (lg && !fav.newsLeagues.includes(lg) && fav.newsLeagues.length < 30) fav.newsLeagues.push(lg);
+  }
   saveFav(); render();
 }
 function toggleMatch(f) {
@@ -926,7 +1116,7 @@ function toggleMatch(f) {
 function removeMatch(id) { fav.matches = fav.matches.filter((x) => x.id !== id); saveFav(); render(); }
 function togglePref(k) { fav.alerts[k] = !fav.alerts[k]; saveFav(); render(); }
 function clearFav() {
-  fav = { teams: [], matches: [], alerts: { ...DEFAULT_ALERTS }, log: [] };
+  fav = { teams: [], matches: [], newsTeams: [], newsLeagues: [], alerts: { ...DEFAULT_ALERTS }, log: [] };
   saveFav(); state.confirmClear = false; state.tq = ''; state.tres = null; render();
 }
 let searchTimer;
@@ -949,12 +1139,18 @@ function searchTeams() {
 // ---------- Taps and typing ----------
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('calwrap')) { if (state.player) closePlayer(); else closeCal(); return; }
-  const el = e.target.closest('[data-open],[data-back],[data-retry],[data-clear-search],[data-pteam],[data-player-close],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
+  const el = e.target.closest('[data-open],[data-back],[data-retry],[data-clear-search],[data-track-toggle],[data-track-team],[data-track-league],[data-track-word],[data-untrack-kind],[data-nfilter],[data-pteam],[data-player-close],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
   if (!el) return;
   const d = el.dataset;
   if (d.open) openMatch(d.open);
   else if ('playerClose' in d) closePlayer();
   else if (d.pteam !== undefined) openPlayer(d.pteam, d.pnum, d.pname);
+  else if ('trackToggle' in d) { state.trackOpen = !state.trackOpen; state.nq = ''; state.nres = null; render(); }
+  else if (d.trackTeam !== undefined) trackAdd('team', d.trackTeam);
+  else if (d.trackLeague !== undefined) trackAdd('league', d.trackLeague);
+  else if (d.trackWord !== undefined) trackAdd('team', d.trackWord);
+  else if (d.untrackKind) trackRemove(d.untrackKind, d.untrackName);
+  else if (d.nfilter) { state.newsFilter = d.nfilter; render(); }
   else if ('retry' in d) loadMatches();
   else if ('clearSearch' in d) { state.mq = ''; render(); }
   else if ('today' in d) setDay(0);
@@ -992,6 +1188,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('input', (e) => {
   if (e.target.id === 'tq') { state.tq = e.target.value; searchTeams(); }
   else if (e.target.id === 'lq') { state.lq = e.target.value; searchLeagues(); }
+  else if (e.target.id === 'nq') { state.nq = e.target.value; searchNews(); }
   else if (e.target.id === 'mq') {
     state.mq = e.target.value;
     const box = document.getElementById('mscroll');

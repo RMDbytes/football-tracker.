@@ -108,9 +108,25 @@ iPhone (Safari):  Share button > "Add to Home Screen"
   app itself does not change.
 - Alerts appear only while the app is open. Alerts when the app is closed
   (push notifications) come with the Android and iPhone store versions.
-- News (optional): add NEWS_FEEDS = link to a news site's RSS feed
-  (several allowed, separated by commas). The app shows only the headline,
-  the source name and a link back. Check each site's terms first.
+- News (optional): add NEWS_FEEDS = links to news sites' RSS feeds
+  (several allowed, separated by commas), for example
+  https://feeds.bbci.co.uk/sport/football/rss.xml,https://www.theguardian.com/football/rss
+  The app shows only the headline, the source name and a link back.
+  Check each site's terms first; many allow personal, non-commercial use only.
+  Personalised news: headlines that mention your followed teams come first
+  ("Your teams"), then your leagues ("Your leagues"), then everything else.
+  Following a team also tracks its league. Tap "+ Track" on the News screen
+  to add more teams, leagues or any keyword. Matching is by name in the
+  headline, so it works best with feeds that cover your clubs.
+- News pictures and colours: each headline shows a picture. If the feed
+  supplies a photo, that is shown (on top of the club's badge); otherwise the
+  badge of the club named in the headline; otherwise a small football icon.
+  Rows alternate green and cream. Photos belong to the publishers and are
+  loaded from their own servers, so use them only where their terms allow.
+  To change this, add NEWS_IMAGES in Render's Environment:
+     publisher  = feed photos plus club badges (default)
+     crests     = club badges only, no publisher photos
+     off        = no news pictures
 - Pictures come from the data provider's own servers. Club badges and player
   photos belong to their owners, so check the provider's terms before a
   public launch or before publishing to the app stores.
