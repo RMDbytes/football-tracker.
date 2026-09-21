@@ -800,6 +800,38 @@ app.get('/api/news', wrap(async (_req, res) => {
   res.json(NEWS_IMAGES === 'crests' ? withBadges.map(({ image, ...rest }) => rest) : withBadges);
 }));
 
+// Checks whether a news site allows its pages to be shown inside another app (only the page's headers are read, never its content).
+// Only links that are in the current news list can be checked.
+app.get('/api/frame-check', wrap(async (req, res) => {
+  const url = String(req.query.u ?? '');
+  const items = DEMO && !NEWS_FEEDS ? DEMO_NEWS : await cached('news', 10 * 60_000, loadNews);
+  if (!url || !items.some((i) => i.link === url)) return res.status(400).json({ error: 'Unknown link' });
+  const host = new URL(url).host;
+  const ours = String(req.headers.host || '').toLowerCase();
+  const result = await cached(`frame:${host}:${ours}`, 12 * 3600_000, async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const r = await fetch(url, { redirect: 'follow', signal: ctrl.signal, headers: { 'user-agent': 'Mozilla/5.0 (compatible; FootballTracker/1.0)' } });
+      r.body?.cancel?.().catch(() => {});
+      const xfo = (r.headers.get('x-frame-options') || '').toLowerCase();
+      const csp = /frame-ancestors([^;]*)/i.exec(r.headers.get('content-security-policy') || '');
+      let ok = r.ok;
+      if (/deny|sameorigin/.test(xfo)) ok = false;
+      if (csp) {
+        const allowed = csp[1].trim().toLowerCase();
+        if (!(allowed.includes('*') || (ours && allowed.includes(ours)))) ok = false;
+      }
+      return { embeddable: ok };
+    } catch {
+      return { embeddable: false };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+  res.json(result);
+}));
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, demo: DEMO, provider: PROVIDER, tables: FOOTBALL_DATA_KEY ? 'football-data.org for 12 big competitions, main source for the rest' : 'main source', requestsToday: usage.count, dailyLimit: DAILY_LIMIT, lastError });
 });

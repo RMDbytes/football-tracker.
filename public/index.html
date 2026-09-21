@@ -290,6 +290,20 @@ nav button svg{width:21px;height:21px}
 .nimg .nu{object-fit:contain;padding:16%}
 .nimg .np{object-fit:cover}
 .nimg .ball{width:54%;height:54%;color:#9DB3A5}
+
+/* ---- reading an article inside the app ---- */
+#reader{position:fixed;inset:0;z-index:30;background:var(--bg);display:none;flex-direction:column}
+#reader.show{display:flex}
+.rbar{display:flex;align-items:center;gap:6px;padding:calc(6px + env(safe-area-inset-top)) 8px 6px;border-bottom:1px solid var(--line);flex-shrink:0}
+.rt2{flex:1;min-width:0}.rt2 b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rt2 span{font-size:11px;color:var(--muted)}
+.rbody{flex:1;min-height:0;display:flex;flex-direction:column}
+.rframe{flex:1;min-height:0;width:100%;border:0;background:#fff}
+.rmsg{padding:24px 20px;line-height:1.5;color:var(--soft);font-size:14px}
+.rmsg b{color:var(--text);font-size:16px}
+.rmsg p{margin:10px 0 18px}
+.rmsg a.primary{display:flex;align-items:center;justify-content:center;text-decoration:none;margin-top:0}
+.rfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px calc(6px + env(safe-area-inset-bottom));border-top:1px solid var(--line);font-size:12px;color:var(--muted);flex-shrink:0}
+.rbar a.ghost,.rfoot a.ghost{display:inline-flex;align-items:center;text-decoration:none;white-space:nowrap}
 #toast{position:fixed;top:calc(12px + env(safe-area-inset-top));left:16px;right:16px;max-width:528px;margin:0 auto;z-index:10;display:none;min-height:52px;border:0;border-radius:14px;background:var(--accent);color:#0E1512;font-size:15px;font-weight:700;padding:0 16px;align-items:center;justify-content:space-between;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 #toast.show{display:flex}
 </style>
@@ -334,7 +348,7 @@ let fav = loadFav();
 const saveFav = () => keep.set('ft_fav', JSON.stringify(fav));
 
 const state = {
-  tab: 'today', filter: 'all', mq: '', player: null, newsFilter: 'all', trackOpen: false, nq: '', nres: null, league: null, season: null, leagues: null, lq: '', view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
+  tab: 'today', filter: 'all', mq: '', player: null, article: null, newsFilter: 'all', trackOpen: false, nq: '', nres: null, league: null, season: null, leagues: null, lq: '', view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
   days: {}, detail: null, table: null, news: null,
   demo: false, error: '',
   tq: '', tres: null, confirmClear: false,
@@ -783,7 +797,7 @@ function newsCard(row, index) {
   const tags = names.map((t) => `<span class="tag">${esc(t)}</span>`).join('');
   const inner = `<div class="nbody"><div class="meta"><span>${esc(x.source || 'News')}</span><span>${esc(ago)}</span></div><div class="t">${esc(x.title)}</div>${tags ? `<div class="tags">${tags}</div>` : ''}</div>${newsThumb(row)}`;
   const cls = `news ${index % 2 === 0 ? 'c0' : 'c1'}`;
-  return x.link ? `<a class="${cls}" href="${esc(x.link)}" target="_blank" rel="noopener">${inner}</a>` : `<div class="${cls}">${inner}</div>`;
+  return x.link ? `<a class="${cls}" href="${esc(x.link)}" target="_blank" rel="noopener" data-article="${esc(x.link)}" data-atitle="${esc(x.title)}" data-asource="${esc(x.source || '')}">${inner}</a>` : `<div class="${cls}">${inner}</div>`;
 }
 
 function trackChips(removable) {
@@ -1066,6 +1080,43 @@ function openMatch(id, view) {
   render(); loadDetail();
   clearInterval(detailTimer); detailTimer = setInterval(loadDetail, 30000);
 }
+// ----- Reading an article inside the app -----
+const $reader = document.createElement('div');
+$reader.id = 'reader';
+document.body.appendChild($reader);
+const backIcon = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
+function openArticle(url, title, source) {
+  if (!/^https?:\/\//i.test(url)) return;
+  state.article = { url };
+  try { history.pushState({ a: 1 }, '', location.hash); } catch {}
+  $reader.innerHTML = `<div class="rbar"><button class="iconbtn" aria-label="Back to the app" data-reader-close>${backIcon}</button>
+    <div class="rt2"><b>${esc(title)}</b><span>${esc(source)}</span></div>
+    <a class="ghost" href="${esc(url)}" target="_blank" rel="noopener">Open in browser</a></div>
+    <div class="rbody" id="rbody"><div class="rmsg">Opening…</div></div>`;
+  $reader.classList.add('show');
+  call(`/api/frame-check?u=${encodeURIComponent(url)}`)
+    .then((r) => { if (state.article && state.article.url === url) showArticle(url, title, r.embeddable); })
+    .catch(() => { if (state.article && state.article.url === url) showArticle(url, title, false); });
+}
+function showArticle(url, title, ok) {
+  const box = document.getElementById('rbody');
+  if (!box) return;
+  const open = `<a class="ghost" href="${esc(url)}" target="_blank" rel="noopener">Open in browser</a>`;
+  box.innerHTML = ok
+    ? `<iframe class="rframe" title="${esc(title)}" src="${esc(url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>
+       <div class="rfoot"><span>Page blank or stuck?</span>${open}</div>`
+    : `<div class="rmsg"><b>This site can't be shown inside the app.</b>
+       <p>Many news sites block being displayed inside other apps. The Android and iPhone store versions will show articles in a built-in browser window. For now you can open this one in your browser.</p>
+       <a class="primary" href="${esc(url)}" target="_blank" rel="noopener">Open article in browser</a></div>`;
+}
+function closeArticle(fromBack) {
+  if (!state.article) return;
+  state.article = null;
+  $reader.classList.remove('show');
+  $reader.innerHTML = '';
+  if (!fromBack && history.state && history.state.a) history.back();
+}
+
 function openPlayer(team, number, name) {
   state.player = { team, number: number ?? '', name };
   const f = state.detail && state.detail.fixture;
@@ -1139,10 +1190,12 @@ function searchTeams() {
 // ---------- Taps and typing ----------
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('calwrap')) { if (state.player) closePlayer(); else closeCal(); return; }
-  const el = e.target.closest('[data-open],[data-back],[data-retry],[data-clear-search],[data-track-toggle],[data-track-team],[data-track-league],[data-track-word],[data-untrack-kind],[data-nfilter],[data-pteam],[data-player-close],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
+  const el = e.target.closest('[data-open],[data-back],[data-article],[data-reader-close],[data-retry],[data-clear-search],[data-track-toggle],[data-track-team],[data-track-league],[data-track-word],[data-untrack-kind],[data-nfilter],[data-pteam],[data-player-close],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
   if (!el) return;
   const d = el.dataset;
-  if (d.open) openMatch(d.open);
+  if (d.article !== undefined) { e.preventDefault(); openArticle(d.article, d.atitle, d.asource); }
+  else if ('readerClose' in d) closeArticle(false);
+  else if (d.open) openMatch(d.open);
   else if ('playerClose' in d) closePlayer();
   else if (d.pteam !== undefined) openPlayer(d.pteam, d.pnum, d.pname);
   else if ('trackToggle' in d) { state.trackOpen = !state.trackOpen; state.nq = ''; state.nres = null; render(); }
@@ -1197,7 +1250,8 @@ document.addEventListener('input', (e) => {
   }
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.player) closePlayer();
+  if (e.key === 'Escape' && state.article) closeArticle(false);
+  else if (e.key === 'Escape' && state.player) closePlayer();
   else if (e.key === 'Escape' && state.cal) closeCal();
 });
 
@@ -1250,6 +1304,7 @@ function connect() {
 // ---------- Start ----------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 window.addEventListener('popstate', () => {
+  if (state.article) { closeArticle(true); return; }
   state.player = null; state.cal = null;
   if (state.matchId) closeMatch(); else render();
 });
