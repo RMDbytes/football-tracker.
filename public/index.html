@@ -146,6 +146,7 @@ nav button.on{color:var(--accent)}
 .linkrow{width:100%;border:0;border-bottom:1px solid #1E2C25;background:none;color:var(--text);text-align:left;padding:0 4px}
 .mid .follow{margin-top:6px}
 button.banner{display:block;width:100%;border:0;text-align:left;font-family:inherit}
+.dl{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;padding:8px 4px 6px}
 #toast{position:fixed;top:calc(12px + env(safe-area-inset-top));left:16px;right:16px;max-width:528px;margin:0 auto;z-index:10;display:none;min-height:52px;border:0;border-radius:14px;background:var(--accent);color:#0E1512;font-size:15px;font-weight:700;padding:0 16px;align-items:center;justify-content:space-between;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 #toast.show{display:flex}
 </style>
@@ -155,10 +156,6 @@ button.banner{display:block;width:100%;border:0;text-align:left;font-family:inhe
 <button id="toast" data-toast></button>
 
 <script>
-const LEAGUES = [
-  { id: 39, name: 'Premier League' }, { id: 140, name: 'La Liga' }, { id: 135, name: 'Serie A' },
-  { id: 78, name: 'Bundesliga' }, { id: 61, name: 'Ligue 1' }
-];
 const LIVE = ['1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT'];
 const DONE = ['FT', 'AET', 'PEN', 'AWD', 'WO'];
 const OTHER = { PST: 'Postponed', CANC: 'Cancelled', ABD: 'Abandoned', SUSP: 'Suspended' };
@@ -192,7 +189,7 @@ let fav = loadFav();
 const saveFav = () => keep.set('ft_fav', JSON.stringify(fav));
 
 const state = {
-  tab: 'today', filter: 'all', league: 39, view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
+  tab: 'today', filter: 'all', mq: '', league: null, season: null, leagues: null, lq: '', view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
   days: {}, detail: null, table: null, news: null,
   demo: false, error: '',
   tq: '', tres: null, confirmClear: false,
@@ -310,40 +307,80 @@ function followingBlock(list) {
   return `<div class="group"><div class="ghead"><b>Following</b></div>${inner}</div>`;
 }
 
-function todayView() {
+const norm = (t) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+// Popular competitions, shown first. Each entry: [league name pattern, country pattern].
+const POPULAR = [
+  [/^premier league$/, /england/], [/^(la ?liga|primera division)$/, /spain/], [/^serie a$/, /italy/], [/^bundesliga$/, /germany/], [/^ligue 1$/, /france/],
+  [/^(uefa )?champions league$/, /./], [/^(uefa )?europa league$/, /./], [/^(uefa )?(europa )?conference league$/, /./],
+  [/^(fifa )?world cup/, /./], [/^(uefa )?euro(pean championship)?$/, /./], [/^copa libertadores$/, /./],
+  [/^(serie a|brasileirao.*)$/, /brazil/], [/^(mls|major league soccer)$/, /usa|united states/], [/^(efl )?championship$/, /england/],
+  [/^eredivisie$/, /netherlands/], [/^(primeira liga|liga portugal)$/, /portugal/], [/^fa cup$/, /england/], [/^(uefa )?nations league$/, /./]
+];
+const popularRank = (name, country) => {
+  const n = norm(name).trim(), c = norm(country);
+  const i = POPULAR.findIndex(([a, b]) => a.test(n) && b.test(c));
+  return i < 0 ? 99 : i;
+};
+
+function matchesBody() {
   const r = state.days[state.day];
   const all = r && r.matches;
-  let body;
-  if (!all) body = `<div class="note">${esc(state.error || 'Loading matches…')}</div>`;
-  else {
-    const list = all.filter((m) =>
-      state.filter === 'mine' ? isMine(m) :
-      state.filter === 'live' ? LIVE.includes(m.status) :
-      state.filter === 'done' ? DONE.includes(m.status) :
-      state.filter === 'soon' ? m.status === 'NS' : true);
-    const groups = new Map();
-    for (const m of list) {
-      const key = `${m.league}|${m.country}`;
-      if (!groups.has(key)) groups.set(key, { name: m.league, country: m.country, items: [] });
-      groups.get(key).items.push(m);
-    }
-    const hasLive = (g) => g.items.some((m) => LIVE.includes(m.status));
-    const ordered = [...groups.values()].sort((a, b) => Number(hasLive(b)) - Number(hasLive(a)) || a.name.localeCompare(b.name));
-    const note = r.note === 'plan' ? '<div class="banner">Your current data plan does not include this day.</div>'
-      : r.note === 'error' ? '<button class="banner" data-retry>Could not refresh this day just now. Tap to try again.</button>' : '';
-    body = note + followingBlock(list) + (ordered.length
-      ? ordered.map((g) => `<div class="group"><div class="ghead"><b>${esc(g.name)}</b><span>${esc(g.country)}</span></div>${g.items.map(matchCard).join('')}</div>`).join('')
-      : (r.note === 'plan' ? '' : '<div class="note">No matches here.</div>'));
+  if (!all) return `<div class="note">${esc(state.error || 'Loading matches…')}</div>`;
+  const words = norm(state.mq).trim().split(/\s+/).filter(Boolean);
+  const hit = (m) => !words.length || words.every((w) => norm(`${m.home} ${m.away} ${m.league} ${m.country}`).includes(w));
+  const list = all.filter((m) =>
+    state.filter === 'mine' ? isMine(m) :
+    state.filter === 'live' ? LIVE.includes(m.status) :
+    state.filter === 'done' ? DONE.includes(m.status) :
+    state.filter === 'soon' ? m.status === 'NS' : true).filter(hit);
+  const groups = new Map();
+  for (const m of list) {
+    const key = `${m.league}|${m.country}`;
+    if (!groups.has(key)) groups.set(key, { name: m.league, country: m.country, rank: popularRank(m.league, m.country), items: [] });
+    groups.get(key).items.push(m);
   }
-  const liveCount = ((all) || []).filter((m) => LIVE.includes(m.status)).length;
+  const hasLive = (g) => g.items.some((m) => LIVE.includes(m.status));
+  const ordered = [...groups.values()].sort((a, b) => a.rank - b.rank || Number(hasLive(b)) - Number(hasLive(a)) || a.name.localeCompare(b.name));
+  const note = r.note === 'plan' ? '<div class="banner">Your current data plan does not include this day.</div>'
+    : r.note === 'error' ? '<button class="banner" data-retry>Could not refresh this day just now. Tap to try again.</button>' : '';
+  const card = (g) => `<div class="group"><div class="ghead"><b>${esc(g.name)}</b><span>${esc(g.country)}</span></div>${g.items.map(matchCard).join('')}</div>`;
+  const top = ordered.filter((g) => g.rank < 99), rest = ordered.filter((g) => g.rank >= 99);
+  const label = (t) => `<div class="eyebrow" style="margin:6px 4px 10px">${t}</div>`;
+  let out = note + (words.length ? '' : followingBlock(list));
+  if (top.length) out += label('Top leagues') + top.map(card).join('');
+  if (rest.length) out += (top.length ? label('Other leagues') : '') + rest.map(card).join('');
+  if (!ordered.length && r.note !== 'plan') {
+    out += words.length
+      ? `<div class="note">No matches for “${esc(state.mq.trim())}” on this day.${'' } <button class="ghost" data-clear-search style="margin-top:8px">Clear search</button></div>`
+      : '<div class="note">No matches here.</div>';
+  }
+  if (words.length) {
+    const rows = [];
+    for (const [k, day] of Object.entries(state.days)) {
+      if (Number(k) === state.day) continue;
+      for (const m of (day && day.matches) || []) if (hit(m)) rows.push({ off: Number(k), m });
+    }
+    rows.sort((a, b) => a.m.kickoff - b.m.kickoff);
+    if (rows.length) {
+      out += `<div class="group"><div class="ghead"><b>On other days</b><span>days you have opened</span></div>` +
+        rows.slice(0, 20).map(({ off, m }) => `<div class="dl">${esc(dayLabel(off))}</div>${matchCard(m)}`).join('') + '</div>';
+    }
+  }
+  return out;
+}
+
+function todayView() {
+  const all = state.days[state.day] && state.days[state.day].matches;
+  const liveCount = (all || []).filter((m) => LIVE.includes(m.status)).length;
   const dateText = dayInfo(state.day).dateObj.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
   return `<div class="screen">
     <div class="head"><div class="headrow"><div><div class="eyebrow">${esc(dateText)}</div><h1>Matches</h1></div>
     <div class="ctrls">${liveCount ? `<div class="livepill"><i></i>${liveCount} live</div>` : ''}${state.day !== 0 ? '<button class="ghost" data-today>Today</button>' : ''}<button class="iconbtn round" aria-label="Open calendar" data-cal-open><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></button></div></div></div>
     ${state.demo ? '<div class="demo">Demo mode: these are made-up sample matches. Add your data key to see real games.</div>' : ''}
+    <div style="padding:0 16px 10px"><input class="inp" id="mq" type="search" autocomplete="off" autocapitalize="off" placeholder="Search clubs or competitions" aria-label="Search clubs or competitions" value="${esc(state.mq)}" style="min-height:46px"></div>
     ${dayStrip()}
     ${chips([['all', 'All'], ['mine', '★ Mine'], ['live', 'Live'], ['soon', 'Upcoming'], ['done', 'Finished']], (v) => state.filter === v, 'filter')}
-    <div class="scroll">${body}</div></div>`;
+    <div class="scroll" id="mscroll">${matchesBody()}</div></div>`;
 }
 
 const surname = (n) => String(n || '').split(' ').filter(Boolean).slice(-1)[0] || '';
@@ -361,7 +398,7 @@ function tickerHtml(d) {
     else if (varr) { title = `VAR · ${esc(e.detail)}`; subline = esc(e.team); }
     else { title = esc(e.type); subline = esc(e.team); }
     const ico = goal ? goalIcon : card ? `<div class="card ${/red/i.test(e.detail) ? 'red' : ''}"></div>` : sub ? subIcon : '';
-    return { min: e.minute, html: `<div class="ev"><div class="min">${esc(e.minute)}'</div><div class="ico">${ico}</div><div class="who"><b>${title}</b><span>${subline}</span></div></div>` };
+    return { min: e.order != null ? e.order : Number(e.minute), html: `<div class="ev"><div class="min">${esc(e.minute)}'</div><div class="ico">${ico}</div><div class="who"><b>${title}</b><span>${subline}</span></div></div>` };
   }).sort((a, b) => b.min - a.min);
   const marker = (label, text) => `<div class="ev"><div class="min">${label}</div><div class="ico"></div><div class="who"><b>${text}</b></div></div>`;
   const out = rows.map((r) => r.html);
@@ -461,18 +498,27 @@ function matchView() {
     <div class="scroll">${content}</div></div>`;
 }
 
+function leagueChipsHtml() {
+  const L = state.leagues;
+  if (!L) return '<div class="note tight">Loading leagues…</div>';
+  if (!L.length) return '<div class="note tight">No leagues found. Open a few days of matches first, or try another spelling.</div>';
+  return `<div class="chips" id="lchips">${L.map((l) => `<button class="chip ${String(state.league) === String(l.id) ? 'on' : ''}" data-league="${l.id}" data-season="${l.season ?? ''}">${esc(l.name)}${l.country ? ' · ' + esc(l.country) : ''}</button>`).join('')}</div>`;
+}
+
 function tablesView() {
   const t = state.table;
   let body;
-  if (!t) body = `<div class="note">${esc(state.error || 'Loading table…')}</div>`;
-  else if (!t.length) body = '<div class="note">No table available for this league.</div>';
+  if (!state.league) body = `<div class="note">${esc(state.error || 'Pick a league above.')}</div>`;
+  else if (!t) body = `<div class="note">${esc(state.error || 'Loading table…')}</div>`;
+  else if (!t.length) body = '<div class="note">No table is available for this league right now.</div>';
   else body = `<div class="table"><div class="tr th"><div>#</div><div>TEAM</div><div>P</div><div>GD</div><div>PTS</div></div>
     ${t.map((r) => `<div class="tr"><div class="pos ${r.rank <= 4 ? 'top' : ''}">${r.rank}</div>
       <div class="tm"><span class="badge">${code(r.team)}</span><span>${esc(r.team)}</span></div>
       <div>${r.played}</div><div>${r.goalDiff > 0 ? '+' : ''}${r.goalDiff}</div><div class="pts">${r.points}</div></div>`).join('')}</div>
     <div class="note" style="padding:12px 4px 0;font-size:12px">Top four highlighted.</div>`;
   return `<div class="screen"><div class="head"><div class="eyebrow">Standings</div><h1>Tables</h1></div>
-    ${chips(LEAGUES.map((l) => [l.id, l.name]), (v) => String(state.league) === String(v), 'league')}
+    <div style="padding:0 16px 10px"><input class="inp" id="lq" type="search" autocomplete="off" autocapitalize="off" placeholder="Search a league or country" value="${esc(state.lq)}"></div>
+    <div id="lwrap">${leagueChipsHtml()}</div>
     <div class="scroll">${body}</div></div>`;
 }
 
@@ -580,12 +626,29 @@ async function loadExtra(kind) {
   } catch { if (state.extra[key] === undefined || state.extra[key] === 'error') state.extra[key] = 'error'; }
   if (state.matchId === id) render();
 }
+async function loadLeagues() {
+  try {
+    const r = await call(`/api/leagues?q=${encodeURIComponent(state.lq.trim())}`);
+    state.leagues = r.leagues;
+    if (!state.league && state.leagues.length && !state.lq.trim()) {
+      state.league = state.leagues[0].id; state.season = state.leagues[0].season;
+    }
+  } catch { state.leagues = state.leagues || []; }
+  const box = document.getElementById('lwrap');
+  if (state.tab === 'tables' && !state.matchId && box) box.innerHTML = leagueChipsHtml();
+  return state.leagues;
+}
 async function loadTable() {
   state.table = null; render();
-  try { state.table = await call(`/api/standings/${state.league}`); state.error = ''; }
-  catch { state.error = 'This table is unavailable right now.'; }
+  if (!state.league) { await loadLeagues(); if (!state.league) { render(); return; } }
+  try {
+    const q = state.season ? `?season=${encodeURIComponent(state.season)}` : '';
+    state.table = await call(`/api/standings/${state.league}${q}`); state.error = '';
+  } catch { state.error = 'This table is unavailable right now.'; }
   if (state.tab === 'tables' && !state.matchId) render();
 }
+let leagueTimer;
+function searchLeagues() { clearTimeout(leagueTimer); leagueTimer = setTimeout(loadLeagues, 300); }
 async function loadNews() {
   try { state.news = await call('/api/news'); state.error = ''; }
   catch { state.error = 'News is unavailable right now.'; }
@@ -652,11 +715,12 @@ function searchTeams() {
 // ---------- Taps and typing ----------
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('calwrap')) { closeCal(); return; }
-  const el = e.target.closest('[data-open],[data-back],[data-retry],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
+  const el = e.target.closest('[data-open],[data-back],[data-retry],[data-clear-search],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
   if (!el) return;
   const d = el.dataset;
   if (d.open) openMatch(d.open);
   else if ('retry' in d) loadMatches();
+  else if ('clearSearch' in d) { state.mq = ''; render(); }
   else if ('today' in d) setDay(0);
   else if ('calOpen' in d) openCal();
   else if ('calClose' in d) closeCal();
@@ -667,7 +731,7 @@ document.addEventListener('click', (e) => {
   else if ('back' in d) closeMatch();
   else if (d.tab) setTab(d.tab);
   else if (d.filter) { state.filter = d.filter; render(); }
-  else if (d.league) { state.league = d.league; loadTable(); }
+  else if (d.league) { state.league = d.league; state.season = d.season || null; loadTable(); }
   else if (d.view) {
     state.view = d.view; render();
     if (d.view === 'lineups' || d.view === 'players') {
@@ -688,6 +752,12 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('input', (e) => {
   if (e.target.id === 'tq') { state.tq = e.target.value; searchTeams(); }
+  else if (e.target.id === 'lq') { state.lq = e.target.value; searchLeagues(); }
+  else if (e.target.id === 'mq') {
+    state.mq = e.target.value;
+    const box = document.getElementById('mscroll');
+    if (box) { box.innerHTML = matchesBody(); box.scrollTop = 0; }
+  }
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.cal) closeCal();

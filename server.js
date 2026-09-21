@@ -18,6 +18,7 @@ const ERROR_RETRY_SECONDS = Number(process.env.ERROR_RETRY_SECONDS || 45); // wa
 
 const HIGHLIGHTLY_KEY = process.env.HIGHLIGHTLY_KEY || ''; // Highlightly key (data source, and the test page)
 const MAX_LIVE_LEAGUES = Number(process.env.MAX_LIVE_LEAGUES || 3); // Highlightly: leagues refreshed per live check
+const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY || ''; // football-data.org key: used for league tables of 12 big competitions
 const DIAG_TOKEN = process.env.DIAG_TOKEN || '';           // any secret word; turns the test page on
 
 // Which data source feeds the app: set DATA_PROVIDER to apifootball, highlightly or demo, or leave it empty to pick by which key exists.
@@ -146,6 +147,60 @@ async function hlDay(date, tz, from, to) {
     for (const d of first === last ? [first] : [first, last]) rows.push(...(await pages({ date: d })));
     return rows;
   }
+}
+
+// ---------- football-data.org client (league tables of big competitions) ----------
+const FD_BASE = 'https://api.football-data.org/v4';
+const fdCalls = [];
+async function fd(pathname, params = {}) {
+  const now = Date.now();
+  while (fdCalls.length && now - fdCalls[0] > 60_000) fdCalls.shift();
+  if (fdCalls.length >= 9) throw new Error('football-data.org: waiting for the per-minute limit');
+  fdCalls.push(now);
+  const url = new URL(FD_BASE + pathname);
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+  const res = await fetch(url, { headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY } });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`football-data.org HTTP ${res.status} on ${pathname}: ${text.slice(0, 160)}`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`football-data.org sent unreadable data on ${pathname}`);
+  }
+}
+
+// The competitions that football-data.org covers for free, matched by league name and country.
+const FD_COMPETITIONS = [
+  ['PL', /^premier league$/, /england/],
+  ['ELC', /^(efl )?championship$/, /england/],
+  ['PD', /^(la ?liga|primera division)$/, /spain/],
+  ['SA', /^serie a$/, /italy/],
+  ['BL1', /^bundesliga$/, /germany/],
+  ['FL1', /^ligue 1$/, /france/],
+  ['DED', /^eredivisie$/, /netherlands/],
+  ['PPL', /^(primeira liga|liga portugal)$/, /portugal/],
+  ['BSA', /^(serie a|brasileirao.*)$/, /brazil/],
+  ['CL', /^(uefa )?champions league$/, /./],
+  ['WC', /^(fifa )?world cup$/, /./],
+  ['EC', /^(uefa )?euro(pean championship)?$/, /./],
+];
+const plain = (t) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+function fdCodeFor(league, country) {
+  const name = plain(league);
+  const land = plain(country);
+  const hit = FD_COMPETITIONS.find(([, n, c]) => n.test(name) && c.test(land));
+  return hit ? hit[0] : null;
+}
+function mapFdStandings(r) {
+  const groups = Array.isArray(r?.standings) ? r.standings : [];
+  const total = groups.find((g) => g.type === 'TOTAL') || groups[0];
+  return (total?.table || []).map((t) => ({
+    rank: t.position,
+    team: t.team?.shortName || t.team?.name || '',
+    played: t.playedGames ?? 0,
+    goalDiff: t.goalDifference ?? 0,
+    points: t.points ?? 0,
+  }));
 }
 
 const cache = new Map();
@@ -574,6 +629,19 @@ app.get('/api/matches/:id/players', wrap(async (req, res) => {
 
 app.get('/api/standings/:leagueId', wrap(async (req, res) => {
   if (DEMO) return res.json(DEMO_TABLE);
+  if (FOOTBALL_DATA_KEY) {
+    const known = [...fixtures.values()].find((f) => f.leagueId === Number(req.params.leagueId));
+    const code = known ? fdCodeFor(known.league, known.country) : null;
+    if (code) {
+      try {
+        const table = await cached(`fd-standings:${code}`, 60 * 60_000, async () => mapFdStandings(await fd(`/competitions/${code}/standings`)));
+        if (table.length) return res.json(table);
+      } catch (err) {
+        console.error('football-data.org table failed, using the main source:', err.message);
+        lastError = { at: new Date().toISOString(), day: `table ${code}`, message: String(err.message).slice(0, 300) };
+      }
+    }
+  }
   if (PROVIDER === 'highlightly') {
     const league = Number(req.params.leagueId);
     const known = [...fixtures.values()].find((f) => f.leagueId === league);
@@ -659,7 +727,7 @@ app.get('/api/news', wrap(async (_req, res) => {
 }));
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, demo: DEMO, provider: PROVIDER, requestsToday: usage.count, dailyLimit: DAILY_LIMIT, lastError });
+  res.json({ ok: true, demo: DEMO, provider: PROVIDER, tables: FOOTBALL_DATA_KEY ? 'football-data.org for 12 big competitions, main source for the rest' : 'main source', requestsToday: usage.count, dailyLimit: DAILY_LIMIT, lastError });
 });
 
 // ----- Test page for the Highlightly data source (off unless DIAG_TOKEN is set) -----
@@ -700,6 +768,20 @@ app.get('/api/diag/highlightly', wrap(async (req, res) => {
     out.body = text.slice(0, 2500);
   }
   res.json(out);
+}));
+
+// ----- Test page for football-data.org (off unless DIAG_TOKEN is set) -----
+// Open /api/diag/footballdata?token=YOURWORD . Optional: &code=PL to look at one league table.
+app.get('/api/diag/footballdata', wrap(async (req, res) => {
+  if (!DIAG_TOKEN || req.query.token !== DIAG_TOKEN) return res.status(404).json({ error: 'Not found' });
+  if (!FOOTBALL_DATA_KEY) return res.json({ error: 'FOOTBALL_DATA_KEY is not set in your settings' });
+  const code = String(req.query.code || 'PL').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+  try {
+    const table = mapFdStandings(await fd(`/competitions/${code}/standings`));
+    res.json({ ok: true, code, rows: table.length, firstRows: table.slice(0, 5) });
+  } catch (err) {
+    res.json({ ok: false, code, problem: String(err.message).slice(0, 400) });
+  }
 }));
 
 app.use(express.static(path.join(dir, 'public')));

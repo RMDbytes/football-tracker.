@@ -14,6 +14,11 @@ WHAT IT DOES
 - Match page with 4 tabs: Ticker (goals, cards, substitutions, VAR, newest
   first), Lineups (pitch view, formations, coaches, substitutes), Stats
   (possession, shots, corners and more) and Players (ratings and stats)
+- Popular leagues (Premier League, La Liga, Serie A, Bundesliga, Ligue 1,
+  Champions League and more) are listed first each day, under "Top leagues"
+- Search box on the Matches screen: type a club, a competition or a country
+  to filter the day's matches. Days you have already opened are searched too
+  ("On other days")
 - Live scores, league tables, news headlines
 - NO ACCOUNT NEEDED. Favorites are remembered on the device:
     * Follow teams (star button on any match page, or search by name in the
@@ -37,9 +42,15 @@ Highlightly free plan: 100 requests a day. A full day of matches takes about
 2 requests, each match page tab 1 request, and live scores refresh every
 5 minutes for a few leagues at a time (set LIVE_POLL_SECONDS and
 MAX_LIVE_LEAGUES to change this on a paid plan).
-Optional test page: add DIAG_TOKEN = any secret word, then open
-/api/diag/highlightly?token=YOURWORD to check your key. Delete DIAG_TOKEN
-when you are done.
+League tables: if FOOTBALL_DATA_KEY is set (free key from football-data.org),
+tables of these competitions come from football-data.org, which saves
+Highlightly requests: Premier League, Championship, La Liga, Serie A
+(Italy and Brazil), Bundesliga, Ligue 1, Eredivisie, Primeira Liga,
+Champions League, World Cup and European Championship. Every other league,
+or any time football-data.org refuses, uses the main source.
+Optional test pages: add DIAG_TOKEN = any secret word, then open
+/api/diag/highlightly?token=YOURWORD or /api/diag/footballdata?token=YOURWORD
+to check each key. Delete DIAG_TOKEN when you are done.
 
 --- UPDATING AN EXISTING SETUP (you already did the first setup) ---
 1. Unzip this folder.
