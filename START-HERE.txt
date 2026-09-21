@@ -26,12 +26,27 @@ WHAT IT DOES
     * "Clear favorites" removes everything saved on the device
   Nothing about your favorites is stored on any server.
 
+--- CHOOSING THE DATA SOURCE ---
+The app can use one data source at a time:
+  * Highlightly (recommended for now)   - set HIGHLIGHTLY_KEY in Render's Environment
+  * API-Football                        - set API_KEY (only if your account is active)
+  * Demo mode (made-up matches)         - leave both keys empty
+If both keys exist, Highlightly is used. To force a choice, add
+DATA_PROVIDER = highlightly, apifootball or demo.
+Highlightly free plan: 100 requests a day. A full day of matches takes about
+2 requests, each match page tab 1 request, and live scores refresh every
+5 minutes for a few leagues at a time (set LIVE_POLL_SECONDS and
+MAX_LIVE_LEAGUES to change this on a paid plan).
+Optional test page: add DIAG_TOKEN = any secret word, then open
+/api/diag/highlightly?token=YOURWORD to check your key. Delete DIAG_TOKEN
+when you are done.
+
 --- UPDATING AN EXISTING SETUP (you already did the first setup) ---
 1. Unzip this folder.
 2. On GitHub, open your football-tracker repository.
 3. Tap "Add file" > "Upload files".
-4. Drag in EVERYTHING from the unzipped folder: server.js, package.json,
-   START-HERE.txt and the "public" folder.
+4. Drag in EVERYTHING from the unzipped folder: server.js, highlightly.js
+   (new), package.json, START-HERE.txt and the "public" folder.
    (Files with the same name are replaced.)
 5. Tap "Commit changes". Render notices and rebuilds by itself
    (about 2 minutes). Then close the app on your phone and open it again.

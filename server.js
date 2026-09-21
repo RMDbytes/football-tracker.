@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import Parser from 'rss-parser';
 import { WebSocketServer } from 'ws';
+import { rowFromMatch, mapEvents, mapStats, mapLineups, mapBoxScore, mapStandings } from './highlightly.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -15,10 +16,17 @@ const DAILY_LIMIT = Number(process.env.DAILY_LIMIT || 100);             // your 
 const LIVE_POLL_SECONDS = Number(process.env.LIVE_POLL_SECONDS || 300); // 300 suits the free plan
 const ERROR_RETRY_SECONDS = Number(process.env.ERROR_RETRY_SECONDS || 45); // wait before retrying after a temporary problem
 
-const HIGHLIGHTLY_KEY = process.env.HIGHLIGHTLY_KEY || ''; // only used by the test page below
+const HIGHLIGHTLY_KEY = process.env.HIGHLIGHTLY_KEY || ''; // Highlightly key (data source, and the test page)
+const MAX_LIVE_LEAGUES = Number(process.env.MAX_LIVE_LEAGUES || 3); // Highlightly: leagues refreshed per live check
 const DIAG_TOKEN = process.env.DIAG_TOKEN || '';           // any secret word; turns the test page on
 
-const DEMO = !API_KEY;
+// Which data source feeds the app: set DATA_PROVIDER to apifootball, highlightly or demo, or leave it empty to pick by which key exists.
+const wanted = process.env.DATA_PROVIDER || (HIGHLIGHTLY_KEY ? 'highlightly' : API_KEY ? 'apifootball' : 'demo');
+const PROVIDER =
+  wanted === 'highlightly' && HIGHLIGHTLY_KEY ? 'highlightly'
+  : wanted === 'apifootball' && API_KEY ? 'apifootball'
+  : 'demo';
+const DEMO = PROVIDER === 'demo';
 const BASE = 'https://v3.football.api-sports.io';
 const LIVE_STATUSES = ['1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT'];
 const isLive = (s) => LIVE_STATUSES.includes(s);
@@ -94,6 +102,52 @@ async function api(pathname, params = {}) {
   return json.response ?? [];
 }
 
+// ---------- Highlightly client ----------
+const HL_BASE = 'https://soccer.highlightly.net';
+async function hl(pathname, params = {}) {
+  if (usage.day !== today()) Object.assign(usage, { day: today(), count: 0 });
+  if (usage.count >= DAILY_LIMIT) throw new Error('Daily request limit reached');
+  usage.count += 1;
+  const url = new URL(HL_BASE + pathname);
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+  const res = await fetch(url, { headers: { 'x-rapidapi-key': HIGHLIGHTLY_KEY } });
+  const left = Number(res.headers.get('x-ratelimit-requests-remaining'));
+  if (Number.isFinite(left) && res.headers.get('x-ratelimit-requests-remaining') !== null) usage.count = Math.max(usage.count, DAILY_LIMIT - left);
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Highlightly HTTP ${res.status} on ${pathname}: ${text.slice(0, 160)}`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Highlightly sent unreadable data on ${pathname}`);
+  }
+}
+
+// All matches of one day (Highlightly sends 100 per page).
+async function hlDay(date, tz, from, to) {
+  const pages = async (params) => {
+    const rows = [];
+    let offset = 0;
+    for (let page = 0; page < 6; page++) {
+      const r = await hl('/matches', { ...params, limit: 100, offset });
+      const list = Array.isArray(r?.data) ? r.data : [];
+      rows.push(...list.map(rowFromMatch));
+      offset += list.length;
+      if (!list.length || offset >= (r?.pagination?.totalCount ?? 0)) break;
+    }
+    return rows;
+  };
+  try {
+    return await pages({ date, timezone: tz });
+  } catch (err) {
+    if (!/timezone/i.test(err.message)) throw err;
+    const first = new Date(from).toISOString().slice(0, 10);
+    const last = new Date(to - 1).toISOString().slice(0, 10);
+    const rows = [];
+    for (const d of first === last ? [first] : [first, last]) rows.push(...(await pages({ date: d })));
+    return rows;
+  }
+}
+
 const cache = new Map();
 async function cached(key, ttlMs, loader) {
   const hit = cache.get(key);
@@ -132,24 +186,30 @@ async function loadDay(date, tz, from, to) {
   }
   if (!canSpend(10)) return 'error';
   try {
-    let items;
-    try {
-      items = await api('/fixtures', { date, timezone: tz });
-    } catch (err) {
-      if (!/timezone/i.test(err.message)) throw err;
-      // The provider did not accept this time zone: ask by UTC date instead (the app filters to the local day afterwards).
-      items = [];
-      const first = new Date(from).toISOString().slice(0, 10);
-      const last = new Date(to - 1).toISOString().slice(0, 10);
-      for (const d of first === last ? [first] : [first, last]) items.push(...(await api('/fixtures', { date: d })));
+    let rows;
+    if (PROVIDER === 'highlightly') {
+      rows = await hlDay(date, tz, from, to);
+    } else {
+      let items;
+      try {
+        items = await api('/fixtures', { date, timezone: tz });
+      } catch (err) {
+        if (!/timezone/i.test(err.message)) throw err;
+        // The provider did not accept this time zone: ask by UTC date instead (the app filters to the local day afterwards).
+        items = [];
+        const first = new Date(from).toISOString().slice(0, 10);
+        const last = new Date(to - 1).toISOString().slice(0, 10);
+        for (const d of first === last ? [first] : [first, last]) items.push(...(await api('/fixtures', { date: d })));
+      }
+      rows = items.map(toRow);
     }
-    save(items.map(toRow));
+    save(rows);
     dayCache.set(key, { at: now, note: '' });
     return '';
   } catch (err) {
     console.error(`Day ${key} failed:`, err.message);
     lastError = { at: new Date().toISOString(), day: key, message: String(err.message).slice(0, 300) };
-    const note = /free plan|do not have access/i.test(err.message) ? 'plan' : 'error';
+    const note = /free plan|do not have access|upgrade|subscription|not included/i.test(err.message) ? 'plan' : 'error';
     if (note === 'plan') {
       const m = err.message.match(/(\d{4}-\d{2}-\d{2})\D+(\d{4}-\d{2}-\d{2})/);
       if (m) planWindow = { day: today(), from: m[1], to: m[2] };
@@ -172,6 +232,28 @@ async function syncLive() {
   // One request returns every live match in the world.
   const items = await api('/fixtures', { live: 'all' });
   save(items.map(toRow)).forEach(broadcast);
+}
+
+// Highlightly has no "all live matches" call, so each check refreshes a few leagues that have live or about-to-start matches.
+let liveCursor = 0;
+async function syncLiveHl() {
+  const now = Date.now();
+  const groups = new Map();
+  for (const f of fixtures.values()) {
+    const soon = f.status === 'NS' && f.kickoff <= now + 10 * 60000 && f.kickoff >= now - 3 * 3600000;
+    if (!isLive(f.status) && !soon) continue;
+    if (!groups.has(f.leagueId)) groups.set(f.leagueId, { leagueId: f.leagueId, date: new Date(f.kickoff).toISOString().slice(0, 10) });
+  }
+  const list = [...groups.values()].sort((a, b) => a.leagueId - b.leagueId);
+  if (!list.length) return;
+  const n = Math.min(MAX_LIVE_LEAGUES, list.length);
+  for (let i = 0; i < n; i++) {
+    if (!canSpend(Math.floor(DAILY_LIMIT * 0.4))) break; // keep some requests for browsing and match pages
+    const g = list[(liveCursor + i) % list.length];
+    const r = await hl('/matches', { leagueId: g.leagueId, date: g.date, limit: 100 });
+    save((Array.isArray(r?.data) ? r.data : []).map(rowFromMatch)).forEach(broadcast);
+  }
+  liveCursor = (liveCursor + n) % list.length;
 }
 
 // ---------- Demo mode (no key needed) ----------
@@ -382,6 +464,24 @@ app.get('/api/matches/:id', wrap(async (req, res) => {
   if (!fixture) return res.status(404).json({ error: 'Match not found' });
   if (DEMO) return res.json({ fixture, ...demoDetail(fixture) });
   if (fixture.status === 'NS') return res.json({ fixture, events: [], stats: [] });
+  if (PROVIDER === 'highlightly') {
+    const ttl = isLive(fixture.status) ? 60_000 : 60 * 60_000;
+    const detail = await cached(`hl-detail:${id}`, ttl, async () => {
+      let r;
+      try {
+        r = await hl(`/matches/${id}`);
+      } catch (err) {
+        if (/HTTP 4\d\d/.test(err.message)) return { events: [], stats: [] }; // no extra detail for this match
+        throw err;
+      }
+      const m = Array.isArray(r) ? r[0] : r;
+      if (!m) return { events: [], stats: [] };
+      const row = rowFromMatch(m);
+      save([{ ...fixture, homeGoals: row.homeGoals, awayGoals: row.awayGoals, status: row.status, elapsed: row.elapsed }]).forEach(broadcast);
+      return { events: mapEvents(m.events), stats: mapStats(m.statistics, m.homeTeam?.id) };
+    });
+    return res.json({ fixture: fixtures.get(id) ?? fixture, ...detail });
+  }
 
   const ttl = isLive(fixture.status) ? 60_000 : 60 * 60_000;
   const events = await cached(`events:${id}`, ttl, async () => {
@@ -403,6 +503,17 @@ app.get('/api/matches/:id/lineups', wrap(async (req, res) => {
   const fixture = fixtures.get(id);
   if (!fixture) return res.status(404).json({ error: 'Match not found' });
   if (DEMO) return res.json({ lineups: demoLineups(fixture) });
+  if (PROVIDER === 'highlightly') {
+    const lineups = await cached(`hl-lineups:${id}`, 5 * 60_000, async () => {
+      try {
+        return mapLineups(await hl(`/lineups/${id}`));
+      } catch (err) {
+        if (/HTTP 4\d\d/.test(err.message)) return []; // not announced yet
+        throw err;
+      }
+    });
+    return res.json({ lineups });
+  }
   const lineups = await cached(`lineups:${id}`, 10 * 60_000, async () => {
     const list = await api('/fixtures/lineups', { fixture: id });
     return list.map((t) => ({
@@ -422,6 +533,18 @@ app.get('/api/matches/:id/players', wrap(async (req, res) => {
   if (!fixture) return res.status(404).json({ error: 'Match not found' });
   if (DEMO) return res.json({ teams: demoPlayers(fixture) });
   if (fixture.status === 'NS') return res.json({ teams: [] });
+  if (PROVIDER === 'highlightly') {
+    const ttl = isLive(fixture.status) ? 60_000 : 60 * 60_000;
+    const teams = await cached(`hl-box:${id}`, ttl, async () => {
+      try {
+        return mapBoxScore(await hl(`/box-score/${id}`));
+      } catch (err) {
+        if (/HTTP 4\d\d/.test(err.message)) return [];
+        throw err;
+      }
+    });
+    return res.json({ teams });
+  }
   const ttl = isLive(fixture.status) ? 60_000 : 60 * 60_000;
   const teams = await cached(`players:${id}`, ttl, async () => {
     const list = await api('/fixtures/players', { fixture: id });
@@ -451,6 +574,21 @@ app.get('/api/matches/:id/players', wrap(async (req, res) => {
 
 app.get('/api/standings/:leagueId', wrap(async (req, res) => {
   if (DEMO) return res.json(DEMO_TABLE);
+  if (PROVIDER === 'highlightly') {
+    const league = Number(req.params.leagueId);
+    const known = [...fixtures.values()].find((f) => f.leagueId === league);
+    const nowD = new Date();
+    const season = Number(req.query.season) || known?.season || (nowD.getUTCMonth() >= 6 ? nowD.getUTCFullYear() : nowD.getUTCFullYear() - 1);
+    const table = await cached(`hl-standings:${league}:${season}`, 60 * 60_000, async () => {
+      try {
+        return mapStandings(await hl('/standings', { leagueId: league, season }));
+      } catch (err) {
+        if (/HTTP 4\d\d/.test(err.message)) return [];
+        throw err;
+      }
+    });
+    return res.json(table);
+  }
   const now = new Date();
   const season = Number(req.query.season) || (now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1);
   const league = Number(req.params.leagueId);
@@ -479,6 +617,10 @@ app.get('/api/teams', wrap(async (req, res) => {
         if (teamSearchDay.day !== today()) teamSearchDay = { day: today(), n: 0 };
         if (teamSearchDay.n >= 15) return [];
         teamSearchDay.n += 1;
+        if (PROVIDER === 'highlightly') {
+          const r = await hl('/teams', { name: apiQuery, limit: 20 });
+          return (Array.isArray(r?.data) ? r.data : []).map((x) => ({ name: x.name, league: x.type === 'national' ? 'National team' : '' }));
+        }
         const list = await api('/teams', { search: apiQuery });
         return list.map((x) => ({ name: x.team.name, league: x.team.country || '' }));
       });
@@ -491,13 +633,33 @@ app.get('/api/teams', wrap(async (req, res) => {
   res.json({ teams: teams.slice(0, 20) });
 }));
 
+// Leagues seen in the matches loaded so far, for the Tables screen. Popular ones first.
+const FIRST_LEAGUES = ['premier league|england', 'la liga|spain', 'laliga|spain', 'serie a|italy', 'bundesliga|germany', 'ligue 1|france',
+  'uefa champions league|world', 'uefa champions league|europe', 'champions league|world', 'mls|usa', 'major league soccer|usa'];
+app.get('/api/leagues', (req, res) => {
+  const q = String(req.query.q ?? '').trim().toLowerCase().slice(0, 40);
+  const map = new Map();
+  for (const f of fixtures.values()) {
+    if (!map.has(f.leagueId)) map.set(f.leagueId, { id: f.leagueId, name: f.league, country: f.country || '', season: f.season ?? null, n: 0 });
+    map.get(f.leagueId).n += 1;
+  }
+  let list = [...map.values()];
+  if (q) list = list.filter((l) => l.name.toLowerCase().includes(q) || l.country.toLowerCase().includes(q));
+  const rank = (l) => {
+    const i = FIRST_LEAGUES.indexOf(`${l.name}|${l.country}`.toLowerCase());
+    return i < 0 ? 99 : i;
+  };
+  list.sort((a, b) => rank(a) - rank(b) || b.n - a.n || a.name.localeCompare(b.name));
+  res.json({ leagues: list.slice(0, 30).map(({ n, ...l }) => l) });
+});
+
 app.get('/api/news', wrap(async (_req, res) => {
   if (DEMO && !NEWS_FEEDS) return res.json(DEMO_NEWS);
   res.json(await cached('news', 10 * 60_000, loadNews));
 }));
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, demo: DEMO, requestsToday: usage.count, dailyLimit: DAILY_LIMIT, lastError });
+  res.json({ ok: true, demo: DEMO, provider: PROVIDER, requestsToday: usage.count, dailyLimit: DAILY_LIMIT, lastError });
 });
 
 // ----- Test page for the Highlightly data source (off unless DIAG_TOKEN is set) -----
@@ -548,9 +710,14 @@ if (DEMO) {
   setInterval(tickDemo, 15_000);
   console.log('DEMO MODE: no API_KEY set, showing sample matches.');
 } else {
+  console.log(`Data source: ${PROVIDER}`);
   setInterval(() => {
     if (wss.clients.size > 0 && liveWindowOpen() && canSpend(10)) {
-      syncLive().catch((e) => console.error('Live sync failed:', e.message));
+      const job = PROVIDER === 'highlightly' ? syncLiveHl() : syncLive();
+      job.catch((e) => {
+        console.error('Live sync failed:', e.message);
+        lastError = { at: new Date().toISOString(), day: 'live', message: String(e.message).slice(0, 300) };
+      });
     }
   }, LIVE_POLL_SECONDS * 1000);
 }
