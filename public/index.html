@@ -167,6 +167,103 @@ button.prow{width:100%;border:0;border-bottom:1px solid #1E2C25;background:none;
 .stgrid{display:grid;grid-template-columns:1fr auto;column-gap:16px;font-size:15px}
 .stgrid > div{padding:11px 0;border-bottom:1px solid #1E2C25;color:var(--soft)}
 .stgrid > div:nth-child(even){text-align:right;color:var(--text)}
+
+/* ---- compact theme: smaller, cleaner ---- */
+.head{padding:14px 16px 8px}
+.eyebrow{font-size:11px;letter-spacing:.1em}
+h1{font-size:30px;margin-top:1px}
+.livepill{height:26px;padding:0 10px;font-size:12px;gap:6px}
+.livepill i{width:7px;height:7px}
+.iconbtn{width:38px;height:38px}
+.iconbtn.round{width:38px;height:38px}
+.ctrls{gap:6px}
+.ghost{min-height:36px;padding:0 12px;font-size:13px}
+.sbox{padding:0 12px 8px}
+.inp{min-height:40px;padding:0 12px;border-radius:10px;font-size:16px}
+.days{padding:0 8px;margin-bottom:8px}
+.day{min-height:38px;padding:0 10px;font-size:13px}
+.chips{padding:0 12px 10px;gap:6px}
+.chip{min-height:34px;padding:0 12px;font-size:13px;border-radius:17px}
+.scroll{padding:0 12px 16px}
+.group{background:var(--card);border-radius:14px;margin-bottom:12px;overflow:hidden}
+.ghead{padding:10px 14px 6px;gap:6px}
+.ghead b{font-size:13px}.ghead span{font-size:12px}
+.lg{width:16px;height:16px;margin-right:6px}
+.match{background:none;border-radius:0;margin:0;padding:8px 14px;min-height:60px;gap:10px;border-top:1px solid var(--line)}
+.ghead + .match{border-top:0}
+.status{width:40px;font-size:12px}
+.status.live{font-size:16px}
+.teams{gap:6px}
+.team{gap:8px}
+.badge{width:22px;height:22px;border-radius:11px;font-size:9px}
+.tname{font-size:14px}
+.score{font-size:19px;min-width:16px}
+.dl{padding:8px 14px 2px}
+.group .cta{margin:0 10px 10px;min-height:38px;font-size:13px;width:calc(100% - 20px)}
+.group .note{padding:4px 14px 12px}
+.note{padding:16px 4px;font-size:14px}
+.note.tight{padding:4px 4px 8px}
+.banner,.demo{padding:8px 12px;font-size:12px;border-radius:10px}
+.demo{margin:0 12px 8px}
+.back{padding:8px 6px 0}
+.board{padding:4px 14px 10px}
+.side{width:88px;gap:6px;font-size:13px}
+.side .badge{width:52px;height:52px;border-radius:26px;font-size:14px}
+.big{font-size:42px}
+.mid{gap:4px}
+.small{font-size:11px}
+.follow{min-height:32px;padding:0 10px;font-size:12px;border-radius:16px}
+.seg{margin:0 12px 6px;padding:3px;border-radius:12px}
+.seg button{min-height:36px;font-size:13px;border-radius:9px}
+.ev{min-height:46px;gap:10px}
+.ev .min{width:36px;font-size:17px}
+.ev .who b{font-size:14px}.ev .who span{font-size:12px}
+.stat{padding:8px 4px}
+.stat .row{margin-bottom:6px}
+.stat .row b{font-size:19px}.stat .row span{font-size:11px}
+.fm{padding:6px 4px}.fm b{font-size:14px}.fm span{font-size:12px}
+.pitch{height:470px;border-radius:12px}
+.pl{width:56px}
+.pl .badge{width:30px;height:30px;border-radius:15px;font-size:12px}
+.pl span{font-size:10px}
+.badge.sm{width:28px;height:28px;border-radius:14px;font-size:10px}
+.badge.big{width:64px;height:64px;border-radius:32px;font-size:18px}
+.badge.has{font-size:0}
+button.prow,.prow{min-height:48px;gap:10px;padding:4px}
+.rt{min-width:38px;height:26px;font-size:16px;border-radius:8px;padding:0 6px}
+.pn b{font-size:14px}.pn span{font-size:11px}
+.num{font-size:15px;min-width:22px}
+.frow{min-height:44px;font-size:14px}
+.table{border-radius:12px;padding:2px 10px 6px}
+.tr{min-height:40px;font-size:13px;grid-template-columns:22px minmax(0,1fr) 24px 32px 32px;column-gap:6px}
+.tr.th{min-height:30px;font-size:11px}
+.tr .pos{font-size:16px}
+.tr .tm{font-size:14px;gap:8px}
+.tr .tm .badge{width:22px;height:22px;border-radius:11px}
+.tr .pts{font-size:18px}
+.news{padding:12px 14px;margin-bottom:8px;border-radius:12px}
+.news .meta{font-size:11px;margin-bottom:6px}
+.news .t{font-size:15px}
+.news.first .t{font-size:24px}
+.trow{min-height:44px;font-size:14px}
+.sw{width:44px;height:26px;border-radius:13px}
+.sw::after{top:3px;left:3px;width:20px;height:20px}
+.sw.on::after{left:21px}
+.lab{margin:10px 0 4px;font-size:11px}
+.box{padding:12px 14px;margin-bottom:12px}
+.fine{font-size:12px}
+.dbtn{min-height:40px;font-size:14px}
+.danger{margin-top:20px;padding-top:14px}
+.primary{min-height:44px;font-size:15px}
+nav{padding:3px 6px calc(5px + env(safe-area-inset-bottom))}
+nav button{min-height:46px;font-size:11px;gap:2px}
+nav button svg{width:21px;height:21px}
+.cal{padding:12px 12px calc(12px + env(safe-area-inset-bottom))}
+.cd{min-height:38px;font-size:14px}
+.calhead b{font-size:15px}
+.pinfo b{font-size:17px}
+.stgrid{font-size:14px}
+.stgrid > div{padding:9px 0}
 #toast{position:fixed;top:calc(12px + env(safe-area-inset-top));left:16px;right:16px;max-width:528px;margin:0 auto;z-index:10;display:none;min-height:52px;border:0;border-radius:14px;background:var(--accent);color:#0E1512;font-size:15px;font-weight:700;padding:0 16px;align-items:center;justify-content:space-between;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 #toast.show{display:flex}
 </style>
@@ -408,7 +505,7 @@ function todayView() {
     <div class="head"><div class="headrow"><div><div class="eyebrow">${esc(dateText)}</div><h1>Matches</h1></div>
     <div class="ctrls">${liveCount ? `<div class="livepill"><i></i>${liveCount} live</div>` : ''}${state.day !== 0 ? '<button class="ghost" data-today>Today</button>' : ''}<button class="iconbtn round" aria-label="Open calendar" data-cal-open><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></button></div></div></div>
     ${state.demo ? '<div class="demo">Demo mode: these are made-up sample matches. Add your data key to see real games.</div>' : ''}
-    <div style="padding:0 16px 10px"><input class="inp" id="mq" type="search" autocomplete="off" autocapitalize="off" placeholder="Search clubs or competitions" aria-label="Search clubs or competitions" value="${esc(state.mq)}" style="min-height:46px"></div>
+    <div class="sbox"><input class="inp" id="mq" type="search" autocomplete="off" autocapitalize="off" placeholder="Search clubs or competitions" aria-label="Search clubs or competitions" value="${esc(state.mq)}"></div>
     ${dayStrip()}
     ${chips([['all', 'All'], ['mine', '★ Mine'], ['live', 'Live'], ['soon', 'Upcoming'], ['done', 'Finished']], (v) => state.filter === v, 'filter')}
     <div class="scroll" id="mscroll">${matchesBody()}</div></div>`;
@@ -580,7 +677,7 @@ function tablesView() {
       <div>${r.played}</div><div>${r.goalDiff > 0 ? '+' : ''}${r.goalDiff}</div><div class="pts">${r.points}</div></div>`).join('')}</div>
     <div class="note" style="padding:12px 4px 0;font-size:12px">Top four highlighted.</div>`;
   return `<div class="screen"><div class="head"><div class="eyebrow">Standings</div><h1>Tables</h1></div>
-    <div style="padding:0 16px 10px"><input class="inp" id="lq" type="search" autocomplete="off" autocapitalize="off" placeholder="Search a league or country" value="${esc(state.lq)}"></div>
+    <div class="sbox"><input class="inp" id="lq" type="search" autocomplete="off" autocapitalize="off" placeholder="Search a league or country" value="${esc(state.lq)}"></div>
     <div id="lwrap">${leagueChipsHtml()}</div>
     <div class="scroll">${body}</div></div>`;
 }
@@ -639,6 +736,69 @@ function favoritesView() {
 }
 
 // ---------- Drawing ----------
+// ---------- Remember where you are (survives a refresh) ----------
+function buildHash() {
+  const p = new URLSearchParams();
+  const dayText = state.day === 0 ? 'today' : dayInfo(state.day).date;
+  let path;
+  if (state.matchId) { path = `match/${state.matchId}`; p.set('v', state.view); p.set('d', dayText); }
+  else if (state.tab === 'today') {
+    path = 'matches'; p.set('d', dayText);
+    if (state.filter !== 'all') p.set('f', state.filter);
+    if (state.mq.trim()) p.set('q', state.mq.trim());
+  } else if (state.tab === 'tables') {
+    path = 'tables';
+    if (state.league) p.set('l', state.league);
+    if (state.season) p.set('s', state.season);
+  } else path = state.tab;
+  const qs = p.toString();
+  return '#/' + path + (qs ? '?' + qs : '');
+}
+function saveLocation() {
+  const h = buildHash();
+  if (location.hash !== h) { try { history.replaceState(history.state, '', h); } catch {} }
+  keep.set('ft_loc', JSON.stringify({ h, t: Date.now() }));
+}
+function offsetFromDate(text) {
+  if (text === 'today' || !text) return 0;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!m) return 0;
+  const t = new Date();
+  const off = Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(t.getFullYear(), t.getMonth(), t.getDate())) / DAY_MS);
+  return Math.abs(off) > RANGE ? 0 : off;
+}
+// Reads an address like #/matches?d=2026-09-19 and puts the app back on that screen. Returns null if it is not one of ours.
+function applyHash(h, allowMatch) {
+  const m = /^#\/([a-z]+)(?:\/(\d+))?(?:\?(.*))?$/.exec(h || '');
+  if (!m) return null;
+  const [, page, id, qs] = m;
+  const p = new URLSearchParams(qs || '');
+  if (page === 'matches') {
+    state.tab = 'today'; state.day = offsetFromDate(p.get('d'));
+    if (['mine', 'live', 'soon', 'done'].includes(p.get('f'))) state.filter = p.get('f');
+    state.mq = p.get('q') || '';
+  } else if (page === 'tables') {
+    state.tab = 'tables';
+    if (p.get('l')) { state.league = p.get('l'); state.season = p.get('s') || null; }
+  } else if (page === 'news') state.tab = 'news';
+  else if (page === 'favorites') state.tab = 'favorites';
+  else if (page === 'match' && id && allowMatch) {
+    state.tab = 'today'; state.day = offsetFromDate(p.get('d'));
+    return { matchId: Number(id), view: ['ticker', 'lineups', 'stats', 'players'].includes(p.get('v')) ? p.get('v') : 'ticker' };
+  } else return null;
+  return {};
+}
+function restoreLocation() {
+  let start = applyHash(location.hash, true);
+  if (start === null) {
+    try {
+      const saved = JSON.parse(keep.get('ft_loc') || 'null');
+      if (saved && saved.h && Date.now() - saved.t < 12 * 3600_000) start = applyHash(saved.h, Date.now() - saved.t < 30 * 60_000);
+    } catch {}
+  }
+  return start;
+}
+
 function render() {
   const oldScroll = $app.querySelector('.scroll') ? $app.querySelector('.scroll').scrollTop : 0;
   const oldChips = $app.querySelector('.chips') ? $app.querySelector('.chips').scrollLeft : 0;
@@ -653,6 +813,7 @@ function render() {
 
   const sc = $app.querySelector('.scroll'); if (sc) sc.scrollTop = key === state.lastKey ? oldScroll : 0;
   state.lastKey = key;
+  saveLocation();
   const ch = $app.querySelector('.chips'); if (ch) ch.scrollLeft = oldChips;
   const strip = $app.querySelector('.days');
   if (strip) {
@@ -703,7 +864,8 @@ async function loadLeagues() {
 }
 async function loadTable() {
   state.table = null; render();
-  if (!state.league) { await loadLeagues(); if (!state.league) { render(); return; } }
+  if (!state.leagues) await loadLeagues();
+  if (!state.league) { if (!state.leagues || !state.leagues.length) { render(); return; } state.league = state.leagues[0].id; state.season = state.leagues[0].season; }
   try {
     const q = state.season ? `?season=${encodeURIComponent(state.season)}` : '';
     state.table = await call(`/api/standings/${state.league}${q}`); state.error = '';
@@ -719,8 +881,9 @@ async function loadNews() {
 }
 
 let detailTimer;
-function openMatch(id) {
-  state.matchId = Number(id); state.detail = null; state.view = 'ticker'; state.error = '';
+function openMatch(id, view) {
+  state.matchId = Number(id); state.detail = null; state.view = view || 'ticker'; state.error = '';
+  try { history.pushState({ m: 1 }, '', buildHash()); } catch {}
   render(); loadDetail();
   clearInterval(detailTimer); detailTimer = setInterval(loadDetail, 30000);
 }
@@ -731,6 +894,7 @@ function openPlayer(team, number, name) {
   render();
 }
 function closePlayer() { state.player = null; render(); }
+function backFromMatch() { if (history.state && history.state.m) history.back(); else closeMatch(); }
 function closeMatch() { state.player = null; state.matchId = null; clearInterval(detailTimer); render(); if (state.tab === 'today') loadMatches(); }
 function setTab(tab) {
   state.tab = tab; state.matchId = null; clearInterval(detailTimer); state.error = ''; render();
@@ -800,7 +964,7 @@ document.addEventListener('click', (e) => {
   else if ('calNext' in d) calMove(1);
   else if (d.calDay !== undefined) pickDay(Number(d.calDay));
   else if ('calToday' in d) pickDay(0);
-  else if ('back' in d) closeMatch();
+  else if ('back' in d) backFromMatch();
   else if (d.tab) setTab(d.tab);
   else if (d.filter) { state.filter = d.filter; render(); }
   else if (d.league) { state.league = d.league; state.season = d.season || null; loadTable(); }
@@ -832,6 +996,7 @@ document.addEventListener('input', (e) => {
     state.mq = e.target.value;
     const box = document.getElementById('mscroll');
     if (box) { box.innerHTML = matchesBody(); box.scrollTop = 0; }
+    saveLocation();
   }
 });
 document.addEventListener('keydown', (e) => {
@@ -887,9 +1052,25 @@ function connect() {
 
 // ---------- Start ----------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+window.addEventListener('popstate', () => {
+  state.player = null; state.cal = null;
+  if (state.matchId) closeMatch(); else render();
+});
+
 (async function boot() {
-  render(); loadMatches(); connect();
+  const start = restoreLocation();
+  render();
+  const loading = loadMatches();
+  if (state.tab === 'tables') { if (!state.leagues) loadLeagues(); loadTable(); }
+  else if (state.tab === 'news') loadNews();
+  connect();
   try { const h = await call('/api/health'); state.demo = h.demo; } catch {}
+  if (start && start.matchId) {
+    await loading;
+    try { history.replaceState(null, '', buildHash()); } catch {}   // list screen underneath, so Back works
+    openMatch(start.matchId, start.view);
+    if (start.view === 'lineups' || start.view === 'players') loadExtra(start.view);
+  }
   render();
 })();
 setInterval(() => { if (document.visibilityState === 'visible' && !state.matchId && state.tab === 'today' && state.day === 0) loadMatches(); }, 60000);

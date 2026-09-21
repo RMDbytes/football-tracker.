@@ -1,5 +1,5 @@
 // Lets the app be installed and opens the last page if the connection drops.
-const CACHE = 'football-shell-v7';
+const CACHE = 'football-shell-v8';
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/'])).then(() => self.skipWaiting()));
 });

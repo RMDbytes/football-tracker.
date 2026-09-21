@@ -24,6 +24,10 @@ WHAT IT DOES
   in a lineup list or on the Players tab) to open a card with their photo
   and match stats. If a picture is missing the app shows the club code or
   shirt number instead
+- Refreshing keeps you where you are: the same tab, day, filter, search,
+  league table or open match (and the phone's Back button returns from a
+  match to the list). Reopening the installed app within 12 hours also
+  returns you to your last screen
 - Live scores, league tables, news headlines
 - NO ACCOUNT NEEDED. Favorites are remembered on the device:
     * Follow teams (star button on any match page, or search by name in the
