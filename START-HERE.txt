@@ -19,6 +19,11 @@ WHAT IT DOES
 - Search box on the Matches screen: type a club, a competition or a country
   to filter the day's matches. Days you have already opened are searched too
   ("On other days")
+- Club badges and league logos on matches, tables and search; player
+  photos in lineups and on the Players tab. Tap any player (on the pitch,
+  in a lineup list or on the Players tab) to open a card with their photo
+  and match stats. If a picture is missing the app shows the club code or
+  shirt number instead
 - Live scores, league tables, news headlines
 - NO ACCOUNT NEEDED. Favorites are remembered on the device:
     * Follow teams (star button on any match page, or search by name in the
@@ -102,5 +107,8 @@ iPhone (Safari):  Share button > "Add to Home Screen"
 - News (optional): add NEWS_FEEDS = link to a news site's RSS feed
   (several allowed, separated by commas). The app shows only the headline,
   the source name and a link back. Check each site's terms first.
+- Pictures come from the data provider's own servers. Club badges and player
+  photos belong to their owners, so check the provider's terms before a
+  public launch or before publishing to the app stores.
 - Before the public launch: add a privacy policy page. Stores ask for one
   even when you collect very little.

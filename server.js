@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import Parser from 'rss-parser';
 import { WebSocketServer } from 'ws';
-import { rowFromMatch, mapEvents, mapStats, mapLineups, mapBoxScore, mapStandings } from './highlightly.js';
+import { rowFromMatch, mapEvents, mapStats, mapLineups, mapBoxScore, mapStandings, safeUrl } from './highlightly.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -70,6 +70,9 @@ const toRow = (x) => ({
   status: x.fixture.status.short,
   elapsed: x.fixture.status.elapsed,
   kickoff: x.fixture.timestamp * 1000,
+  leagueLogo: safeUrl(x.league.logo),
+  homeLogo: safeUrl(x.teams.home.logo),
+  awayLogo: safeUrl(x.teams.away.logo),
 });
 
 // ---------- Live push to phones and browsers ----------
@@ -197,6 +200,7 @@ function mapFdStandings(r) {
   return (total?.table || []).map((t) => ({
     rank: t.position,
     team: t.team?.shortName || t.team?.name || '',
+    logo: safeUrl(t.team?.crest),
     played: t.playedGames ?? 0,
     goalDiff: t.goalDifference ?? 0,
     points: t.points ?? 0,
@@ -312,6 +316,20 @@ async function syncLiveHl() {
 }
 
 // ---------- Demo mode (no key needed) ----------
+// Demo mode draws its own simple shield badges and avatar faces so the image features can be seen without a data key.
+const hueOf = (t) => [...String(t)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
+const svgUri = (svg) => `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+const letters = (t) => String(t).replace(/[^A-Za-z ]/g, '').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+const demoCrest = (name) => {
+  const h = hueOf(name);
+  return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M8 6h48v30c0 12-10 20-24 24C18 56 8 48 8 36z" fill="hsl(${h},55%,36%)"/><path d="M8 6h48v11H8z" fill="hsl(${h},60%,72%)"/><text x="32" y="44" text-anchor="middle" font-family="sans-serif" font-size="19" font-weight="700" fill="#fff">${letters(name)}</text></svg>`);
+};
+const demoFace = (name) => {
+  const h = hueOf(name);
+  return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="hsl(${h},28%,30%)"/><circle cx="32" cy="26" r="12" fill="hsl(${22 + (h % 24)},45%,${52 + (h % 14)}%)"/><path d="M8 64c2-17 13-23 24-23s22 6 24 23z" fill="hsl(${h},50%,48%)"/></svg>`);
+};
+const withLogos = (r) => ({ ...r, homeLogo: demoCrest(r.home), awayLogo: demoCrest(r.away), leagueLogo: demoCrest(r.league) });
+
 const DEMO_TEAMS = [
   ['Northgate United', 'Riverside Town', 'Harbor City', 'Eastfield Rovers', 'Kingsbridge', 'Oakhill Athletic'],
   ['Costa Verde', 'Sierra FC', 'Lakeshore SC', 'Prairie FC', 'Rio Azul', 'Paulista FC'],
@@ -335,7 +353,7 @@ function seedDemo() {
     mk(9004, 140, 'La Liga', 'Spain', 'Costa Verde', 'Sierra FC', 3, 1, 'FT', 90, now - 190 * min),
     mk(9005, 140, 'La Liga', 'Spain', 'Lakeshore SC', 'Prairie FC', null, null, 'NS', null, now + 150 * min),
     mk(9007, 71, 'Brasileirao', 'Brazil', 'Rio Azul', 'Paulista FC', 2, 0, 'FT', 90, now - 200 * min),
-  ]);
+  ].map(withLogos));
 }
 
 function demoDay(from, to) {
@@ -358,7 +376,7 @@ function demoDay(from, to) {
       kickoff: from + (11 + i * 2) * 3600_000,
     });
   }
-  save(rows);
+  save(rows.map(withLogos));
 }
 
 function tickDemo() {
@@ -417,6 +435,15 @@ function demoPlayers(f) {
           goals: scored ? 1 : 0, assists: 0,
           shots: p.pos === 'F' ? 2 : p.pos === 'M' ? 1 : 0, onTarget: p.pos === 'F' ? 1 : 0,
           keyPasses: p.pos === 'M' ? 2 : 0, yellow: 0, red: 0,
+          photo: demoFace(p.name),
+          details: [
+            { label: 'Minutes', value: String(Math.min(90, f.elapsed ?? 90)) },
+            ...(scored ? [{ label: 'Goals', value: '1' }] : []),
+            ...(p.pos === 'F' ? [{ label: 'Shots', value: '2 (1 on target)' }] : []),
+            ...(p.pos === 'M' ? [{ label: 'Key passes', value: '2' }, { label: 'Passes', value: '38/45 (84%)' }] : []),
+            ...(p.pos === 'D' ? [{ label: 'Tackles', value: '3' }, { label: 'Interceptions', value: '2' }] : []),
+            ...(p.pos === 'G' ? [{ label: 'Saves', value: '3' }] : []),
+          ],
         };
       }),
     };
@@ -456,7 +483,7 @@ function demoDetail(f) {
 const DEMO_TABLE = [
   ['Northgate United', 6, 9, 16], ['Harbor City', 6, 8, 14], ['Kingsbridge', 6, 5, 13], ['Riverside Town', 6, 4, 11],
   ['Oakhill Athletic', 6, 2, 10], ['Eastfield Rovers', 6, 1, 9], ['Westmoor', 6, 0, 8], ['Fairview', 6, -2, 7],
-].map(([team, played, goalDiff, points], i) => ({ rank: i + 1, team, played, goalDiff, points }));
+].map(([team, played, goalDiff, points], i) => ({ rank: i + 1, team, logo: demoCrest(team), played, goalDiff, points }));
 
 const DEMO_NEWS = [
   { title: 'Demo mode: headlines from your news feeds show up here', link: '', source: 'Demo', published: new Date().toISOString() },
@@ -611,6 +638,16 @@ app.get('/api/matches/:id/players', wrap(async (req, res) => {
           name: p.player.name,
           number: st.games?.number ?? null,
           pos: st.games?.position ?? null,
+          photo: safeUrl(p.player.photo),
+          details: [
+            ['Minutes', st.games?.minutes], ['Goals', st.goals?.total], ['Assists', st.goals?.assists],
+            ['Shots', st.shots?.total ? `${st.shots.total}${st.shots.on ? ` (${st.shots.on} on target)` : ''}` : null],
+            ['Key passes', st.passes?.key], ['Passes', st.passes?.total ? `${st.passes.total}${st.passes.accuracy ? ` (${st.passes.accuracy} acc.)` : ''}` : null],
+            ['Tackles', st.tackles?.total], ['Interceptions', st.tackles?.interceptions], ['Duels won', st.duels?.total ? `${st.duels.won ?? 0}/${st.duels.total}` : null],
+            ['Dribbles', st.dribbles?.attempts ? `${st.dribbles.success ?? 0}/${st.dribbles.attempts}` : null],
+            ['Fouls committed', st.fouls?.committed], ['Fouls won', st.fouls?.drawn], ['Saves', st.goals?.saves],
+            ['Yellow cards', st.cards?.yellow], ['Red cards', st.cards?.red],
+          ].filter(([, v]) => v !== null && v !== undefined && v !== '' && v !== 0).map(([label, value]) => ({ label, value: String(value) })),
           minutes: st.games?.minutes ?? 0,
           rating: st.games?.rating ? Number(st.games.rating) : null,
           goals: st.goals?.total ?? 0,
@@ -675,9 +712,9 @@ app.get('/api/teams', wrap(async (req, res) => {
   if (q.length < 2) return res.json({ teams: [] });
   const found = new Map();
   for (const f of fixtures.values()) {
-    for (const name of [f.home, f.away]) if (name.toLowerCase().includes(q) && !found.has(name)) found.set(name, f.league);
+    for (const [name, logo] of [[f.home, f.homeLogo], [f.away, f.awayLogo]]) if (name.toLowerCase().includes(q) && !found.has(name)) found.set(name, { league: f.league, logo: logo || '' });
   }
-  const teams = [...found].map(([name, league]) => ({ name, league }));
+  const teams = [...found].map(([name, v]) => ({ name, league: v.league, logo: v.logo }));
   const apiQuery = q.replace(/[^a-z0-9 ]/g, '').trim();
   if (!DEMO && apiQuery.length >= 3 && teams.length < 5 && canSpend(20)) {
     try {
@@ -687,10 +724,10 @@ app.get('/api/teams', wrap(async (req, res) => {
         teamSearchDay.n += 1;
         if (PROVIDER === 'highlightly') {
           const r = await hl('/teams', { name: apiQuery, limit: 20 });
-          return (Array.isArray(r?.data) ? r.data : []).map((x) => ({ name: x.name, league: x.type === 'national' ? 'National team' : '' }));
+          return (Array.isArray(r?.data) ? r.data : []).map((x) => ({ name: x.name, league: x.type === 'national' ? 'National team' : '', logo: safeUrl(x.logo) }));
         }
         const list = await api('/teams', { search: apiQuery });
-        return list.map((x) => ({ name: x.team.name, league: x.team.country || '' }));
+        return list.map((x) => ({ name: x.team.name, league: x.team.country || '', logo: safeUrl(x.team.logo) }));
       });
       for (const t of extra) if (!teams.some((x) => x.name === t.name)) teams.push(t);
     } catch (err) {

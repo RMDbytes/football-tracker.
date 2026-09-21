@@ -147,6 +147,26 @@ nav button.on{color:var(--accent)}
 .mid .follow{margin-top:6px}
 button.banner{display:block;width:100%;border:0;text-align:left;font-family:inherit}
 .dl{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;padding:8px 4px 6px}
+
+.badge{position:relative;overflow:hidden}
+.badge img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:12%}
+.badge.has{background:#EEF2EF;color:transparent;font-size:0}
+.badge.dot img,.badge.sm img,.badge.big img{object-fit:cover;padding:0}
+.badge.sm{width:36px;height:36px;border-radius:18px;flex-shrink:0;font-size:12px}
+.badge.big{width:84px;height:84px;border-radius:42px;font-size:22px;flex-shrink:0}
+.pl .badge{width:36px;height:36px;border-radius:18px;font-size:13px}
+.pl.h .badge{background:var(--accent);color:#0E1512}.pl.a .badge{background:#ECF2EE;color:#0E1512}
+.pl.h .badge.has,.pl.a .badge.has{background:#EEF2EF}
+button.pl{border:0;background:none;color:inherit;font-family:inherit;padding:0;cursor:pointer}
+.tl{display:flex;align-items:center;gap:12px;min-width:0}
+.lg{width:18px;height:18px;object-fit:contain;margin-right:7px;vertical-align:-3px}
+button.prow{width:100%;border:0;border-bottom:1px solid #1E2C25;background:none;color:var(--text);text-align:left;font-family:inherit;cursor:pointer}
+.sheet{max-height:82vh;overflow-y:auto}
+.phead{display:flex;align-items:center;gap:16px;margin-bottom:12px}
+.pinfo{flex:1;min-width:0}.pinfo b{display:block;font-size:20px;line-height:1.2}.pinfo span{display:block;font-size:13px;color:var(--muted);margin-top:4px}
+.stgrid{display:grid;grid-template-columns:1fr auto;column-gap:16px;font-size:15px}
+.stgrid > div{padding:11px 0;border-bottom:1px solid #1E2C25;color:var(--soft)}
+.stgrid > div:nth-child(even){text-align:right;color:var(--text)}
 #toast{position:fixed;top:calc(12px + env(safe-area-inset-top));left:16px;right:16px;max-width:528px;margin:0 auto;z-index:10;display:none;min-height:52px;border:0;border-radius:14px;background:var(--accent);color:#0E1512;font-size:15px;font-weight:700;padding:0 16px;align-items:center;justify-content:space-between;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 #toast.show{display:flex}
 </style>
@@ -189,7 +209,7 @@ let fav = loadFav();
 const saveFav = () => keep.set('ft_fav', JSON.stringify(fav));
 
 const state = {
-  tab: 'today', filter: 'all', mq: '', league: null, season: null, leagues: null, lq: '', view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
+  tab: 'today', filter: 'all', mq: '', player: null, league: null, season: null, leagues: null, lq: '', view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
   days: {}, detail: null, table: null, news: null,
   demo: false, error: '',
   tq: '', tres: null, confirmClear: false,
@@ -277,8 +297,8 @@ function matchCard(m) {
   return `<button class="match" data-open="${m.id}">
     <div class="status ${s.live ? 'live' : ''}">${esc(s.text)}</div>
     <div class="teams">
-      <div class="team"><span class="badge">${code(m.home)}</span><span class="tname">${esc(m.home)}</span><span class="score">${m.homeGoals ?? ''}</span></div>
-      <div class="team"><span class="badge">${code(m.away)}</span><span class="tname">${esc(m.away)}</span><span class="score">${m.awayGoals ?? ''}</span></div>
+      <div class="team">${crest(m.home, m.homeLogo)}<span class="tname">${esc(m.home)}</span><span class="score">${m.homeGoals ?? ''}</span></div>
+      <div class="team">${crest(m.away, m.awayLogo)}<span class="tname">${esc(m.away)}</span><span class="score">${m.awayGoals ?? ''}</span></div>
     </div></button>`;
 }
 
@@ -306,6 +326,17 @@ function followingBlock(list) {
   }
   return `<div class="group"><div class="ghead"><b>Following</b></div>${inner}</div>`;
 }
+
+// Club badges and player photos: shows the picture when there is one, and the club code or shirt number when not.
+const okImg = (u) => /^(https?:\/\/|data:image\/)/i.test(String(u || ''));
+function avatar(fallbackHtml, url, cls) {
+  const img = okImg(url)
+    ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onload="this.parentNode.classList.add('has')" onerror="this.remove()">`
+    : '';
+  return `<span class="badge ${cls || ''}">${fallbackHtml}${img}</span>`;
+}
+const crest = (name, url, cls) => avatar(code(name), url, cls);
+const leagueImg = (url) => (okImg(url) ? `<img class="lg" src="${esc(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()">` : '');
 
 const norm = (t) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 // Popular competitions, shown first. Each entry: [league name pattern, country pattern].
@@ -336,14 +367,14 @@ function matchesBody() {
   const groups = new Map();
   for (const m of list) {
     const key = `${m.league}|${m.country}`;
-    if (!groups.has(key)) groups.set(key, { name: m.league, country: m.country, rank: popularRank(m.league, m.country), items: [] });
+    if (!groups.has(key)) groups.set(key, { name: m.league, country: m.country, logo: m.leagueLogo, rank: popularRank(m.league, m.country), items: [] });
     groups.get(key).items.push(m);
   }
   const hasLive = (g) => g.items.some((m) => LIVE.includes(m.status));
   const ordered = [...groups.values()].sort((a, b) => a.rank - b.rank || Number(hasLive(b)) - Number(hasLive(a)) || a.name.localeCompare(b.name));
   const note = r.note === 'plan' ? '<div class="banner">Your current data plan does not include this day.</div>'
     : r.note === 'error' ? '<button class="banner" data-retry>Could not refresh this day just now. Tap to try again.</button>' : '';
-  const card = (g) => `<div class="group"><div class="ghead"><b>${esc(g.name)}</b><span>${esc(g.country)}</span></div>${g.items.map(matchCard).join('')}</div>`;
+  const card = (g) => `<div class="group"><div class="ghead"><b>${leagueImg(g.logo)}${esc(g.name)}</b><span>${esc(g.country)}</span></div>${g.items.map(matchCard).join('')}</div>`;
   const top = ordered.filter((g) => g.rank < 99), rest = ordered.filter((g) => g.rank >= 99);
   const label = (t) => `<div class="eyebrow" style="margin:6px 4px 10px">${t}</div>`;
   let out = note + (words.length ? '' : followingBlock(list));
@@ -418,6 +449,15 @@ function statsHtml(d) {
   }).join('');
 }
 
+function playerRecord(teamName, number, name) {
+  const T = state.extra[state.matchId + ':players'];
+  if (!Array.isArray(T) || !T.length) return null;
+  const t = T.find((x) => norm(x.team) === norm(teamName)) || null;
+  if (!t) return null;
+  return t.players.find((p) => number !== '' && number != null && Number(p.number) === Number(number)) || t.players.find((p) => norm(p.name) === norm(name)) || null;
+}
+const playerAttrs = (team, p) => `data-pteam="${esc(team)}" data-pnum="${esc(p.number ?? '')}" data-pname="${esc(p.name)}"`;
+
 function pitchPlayers(t, top) {
   const rows = {};
   for (const p of t.start) {
@@ -431,7 +471,8 @@ function pitchPlayers(t, top) {
     return arr.map((p, i) => {
       let x = ((i + 0.5) / arr.length) * 100;
       if (!top) x = 100 - x;
-      return `<div class="pl ${top ? 'h' : 'a'}" style="left:${x}%;top:${y}%"><b>${esc(p.number ?? '')}</b><span>${esc(surname(p.name))}</span></div>`;
+      const rec = playerRecord(t.team, p.number, p.name);
+      return `<button class="pl ${top ? 'h' : 'a'}" ${playerAttrs(t.team, p)} style="left:${x}%;top:${y}%">${avatar(esc(p.number ?? ''), rec && rec.photo, 'dot')}<span>${esc(surname(p.name))}</span></button>`;
     }).join('');
   }).join('');
 }
@@ -444,10 +485,13 @@ function lineupsHtml() {
   const [home, away] = L;
   const head = (t) => `<div class="fm"><b>${esc(t.team)}</b><span>${esc(t.formation || '')}${t.coach ? ' · Coach ' + esc(t.coach) : ''}</span></div>`;
   const hasGrid = home && away && home.start.some((p) => p.grid) && away.start.some((p) => p.grid);
-  const list = (t) => `<div class="eyebrow" style="margin:14px 4px 2px">${esc(t.team)}${t.formation ? ' · ' + esc(t.formation) : ''}</div>` +
-    t.start.map((p) => `<div class="frow"><span><b class="num">${esc(p.number ?? '')}</b> ${esc(p.name)}</span><span class="muted">${esc(p.pos || '')}</span></div>`).join('');
+  const row = (t, p) => {
+    const rec = playerRecord(t.team, p.number, p.name);
+    return `<button class="frow linkrow" ${playerAttrs(t.team, p)}><span class="tl">${avatar(esc(p.number ?? ''), rec && rec.photo, 'sm')}<span>${esc(p.name)}</span></span><span class="muted">${esc(p.pos || '')}</span></button>`;
+  };
+  const list = (t) => `<div class="eyebrow" style="margin:14px 4px 2px">${esc(t.team)}${t.formation ? ' · ' + esc(t.formation) : ''}</div>` + t.start.map((p) => row(t, p)).join('');
   const subs = (t) => `<div class="eyebrow" style="margin:14px 4px 2px">Substitutes · ${esc(t.team)}</div>` +
-    (t.subs.length ? t.subs.map((p) => `<div class="frow"><span><b class="num">${esc(p.number ?? '')}</b> ${esc(p.name)}</span><span class="muted">${esc(p.pos || '')}</span></div>`).join('') : '<div class="note tight">No substitutes listed.</div>');
+    (t.subs.length ? t.subs.map((p) => row(t, p)).join('') : '<div class="note tight">No substitutes listed.</div>');
   return (hasGrid
     ? `${head(home)}<div class="pitch">${pitchPlayers(home, true)}${pitchPlayers(away, false)}</div>${head(away)}`
     : list(home) + list(away)) + subs(home) + (away ? subs(away) : '');
@@ -464,11 +508,30 @@ function playersHtml() {
       const bits = [p.pos, `${p.minutes}'`, p.goals ? `${p.goals} goal${p.goals > 1 ? 's' : ''}` : '', p.assists ? `${p.assists} assist${p.assists > 1 ? 's' : ''}` : '',
         p.shots ? `${p.shots} shot${p.shots > 1 ? 's' : ''}${p.onTarget ? ' (' + p.onTarget + ' on target)' : ''}` : '', p.keyPasses ? `${p.keyPasses} key pass${p.keyPasses > 1 ? 'es' : ''}` : '',
         p.yellow ? 'yellow card' : '', p.red ? 'red card' : ''].filter(Boolean).join(' · ');
-      return `<div class="prow"><div class="rt ${p.rating ? cls : ''}">${p.rating ? p.rating.toFixed(1) : '–'}</div>
-        <div class="pn"><b>${p.number != null ? esc(p.number) + ' ' : ''}${esc(p.name)}</b><span>${esc(bits)}</span></div></div>`;
+      return `<button class="prow" ${playerAttrs(t.team, p)}><div class="rt ${p.rating ? cls : ''}">${p.rating ? p.rating.toFixed(1) : '–'}</div>${avatar(esc(p.number ?? ''), p.photo, 'sm')}
+        <div class="pn"><b>${p.number != null ? esc(p.number) + ' ' : ''}${esc(p.name)}</b><span>${esc(bits)}</span></div></button>`;
     }).join('');
     return `<div class="eyebrow" style="margin:14px 4px 4px">${esc(t.team)}</div>${rows}`;
   }).join('');
+}
+
+function playerSheet() {
+  const q = state.player;
+  const rec = playerRecord(q.team, q.number, q.name);
+  const f = state.detail && state.detail.fixture;
+  const started = f && f.status !== 'NS';
+  const loaded = Array.isArray(state.extra[state.matchId + ':players']);
+  const rating = rec && rec.rating ? `<span class="rt ${rec.rating >= 7.5 ? 'hi' : rec.rating >= 6.5 ? 'mid' : 'lo'}">${rec.rating.toFixed(1)}</span>` : '';
+  const sub = [q.team, q.number !== '' ? '#' + q.number : '', rec && rec.pos, rec && rec.captain ? 'Captain' : ''].filter(Boolean).join(' · ');
+  let body;
+  if (rec && rec.details && rec.details.length) body = `<div class="stgrid">${rec.details.map((d) => `<div>${esc(d.label)}</div><div><b>${esc(d.value)}</b></div>`).join('')}</div>`;
+  else if (!started) body = '<div class="note tight">Match stats appear once the match starts.</div>';
+  else if (!loaded) body = '<div class="note tight">Loading stats…</div>';
+  else body = '<div class="note tight">No match stats are available for this player.</div>';
+  return `<div class="calwrap" data-player-overlay><div class="cal sheet" role="dialog" aria-label="Player">
+    <div class="phead">${avatar(esc(q.number), rec && rec.photo, 'big')}<div class="pinfo"><b>${esc(q.name)}</b><span>${esc(sub)}</span></div>${rating}</div>
+    ${body}
+    <div class="row2"><button class="ghost" data-player-close>Close</button></div></div></div>`;
 }
 
 function matchView() {
@@ -490,9 +553,9 @@ function matchView() {
   const tabs = [['ticker', 'Ticker'], ['lineups', 'Lineups'], ['stats', 'Stats'], ['players', 'Players']];
   return `<div class="screen">${back}
     <div class="board">
-      <div class="side"><span class="badge">${code(f.home)}</span>${esc(f.home)}${followBtn(f.home)}</div>
+      <div class="side">${crest(f.home, f.homeLogo)}${esc(f.home)}${followBtn(f.home)}</div>
       <div class="mid"><div class="big">${esc(score)}</div><div class="small ${s.live ? 'live' : ''}">${esc(label)}</div>${matchBtn}</div>
-      <div class="side"><span class="badge">${code(f.away)}</span>${esc(f.away)}${followBtn(f.away)}</div>
+      <div class="side">${crest(f.away, f.awayLogo)}${esc(f.away)}${followBtn(f.away)}</div>
     </div>
     <div class="seg">${tabs.map(([k, l]) => `<button class="${state.view === k ? 'on' : ''}" data-view="${k}">${l}</button>`).join('')}</div>
     <div class="scroll">${content}</div></div>`;
@@ -513,7 +576,7 @@ function tablesView() {
   else if (!t.length) body = '<div class="note">No table is available for this league right now.</div>';
   else body = `<div class="table"><div class="tr th"><div>#</div><div>TEAM</div><div>P</div><div>GD</div><div>PTS</div></div>
     ${t.map((r) => `<div class="tr"><div class="pos ${r.rank <= 4 ? 'top' : ''}">${r.rank}</div>
-      <div class="tm"><span class="badge">${code(r.team)}</span><span>${esc(r.team)}</span></div>
+      <div class="tm">${crest(r.team, r.logo)}<span>${esc(r.team)}</span></div>
       <div>${r.played}</div><div>${r.goalDiff > 0 ? '+' : ''}${r.goalDiff}</div><div class="pts">${r.points}</div></div>`).join('')}</div>
     <div class="note" style="padding:12px 4px 0;font-size:12px">Top four highlighted.</div>`;
   return `<div class="screen"><div class="head"><div class="eyebrow">Standings</div><h1>Tables</h1></div>
@@ -541,7 +604,7 @@ function teamResultsHtml() {
   if (!state.tres.length) return '<div class="note tight">No team found. Try another spelling, or open a few days of matches first.</div>';
   return state.tres.map((t) => {
     const on = fav.teams.includes(t.name);
-    return `<div class="frow"><span>${esc(t.name)}<br><span class="muted">${esc(t.league)}</span></span><button class="follow ${on ? 'on' : ''}" data-follow-team="${esc(t.name)}">${on ? '★ Following' : '☆ Follow'}</button></div>`;
+    return `<div class="frow"><span class="tl">${crest(t.name, t.logo)}<span>${esc(t.name)}<br><span class="muted">${esc(t.league)}</span></span></span><button class="follow ${on ? 'on' : ''}" data-follow-team="${esc(t.name)}">${on ? '★ Following' : '☆ Follow'}</button></div>`;
   }).join('');
 }
 
@@ -586,7 +649,7 @@ function render() {
     : state.tab === 'today' ? todayView()
     : state.tab === 'tables' ? tablesView()
     : state.tab === 'news' ? newsView() : favoritesView();
-  $app.innerHTML = screen + (state.matchId ? '' : nav()) + (state.cal ? calView() : '');
+  $app.innerHTML = screen + (state.matchId ? '' : nav()) + (state.cal ? calView() : '') + (state.player && state.matchId ? playerSheet() : '');
 
   const sc = $app.querySelector('.scroll'); if (sc) sc.scrollTop = key === state.lastKey ? oldScroll : 0;
   state.lastKey = key;
@@ -661,7 +724,14 @@ function openMatch(id) {
   render(); loadDetail();
   clearInterval(detailTimer); detailTimer = setInterval(loadDetail, 30000);
 }
-function closeMatch() { state.matchId = null; clearInterval(detailTimer); render(); if (state.tab === 'today') loadMatches(); }
+function openPlayer(team, number, name) {
+  state.player = { team, number: number ?? '', name };
+  const f = state.detail && state.detail.fixture;
+  if (f && f.status !== 'NS' && !Array.isArray(state.extra[`${state.matchId}:players`])) loadExtra('players');
+  render();
+}
+function closePlayer() { state.player = null; render(); }
+function closeMatch() { state.player = null; state.matchId = null; clearInterval(detailTimer); render(); if (state.tab === 'today') loadMatches(); }
 function setTab(tab) {
   state.tab = tab; state.matchId = null; clearInterval(detailTimer); state.error = ''; render();
   if (tab === 'today') loadMatches(); else if (tab === 'tables') loadTable(); else if (tab === 'news') loadNews();
@@ -714,11 +784,13 @@ function searchTeams() {
 
 // ---------- Taps and typing ----------
 document.addEventListener('click', (e) => {
-  if (e.target.classList && e.target.classList.contains('calwrap')) { closeCal(); return; }
-  const el = e.target.closest('[data-open],[data-back],[data-retry],[data-clear-search],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
+  if (e.target.classList && e.target.classList.contains('calwrap')) { if (state.player) closePlayer(); else closeCal(); return; }
+  const el = e.target.closest('[data-open],[data-back],[data-retry],[data-clear-search],[data-pteam],[data-player-close],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
   if (!el) return;
   const d = el.dataset;
   if (d.open) openMatch(d.open);
+  else if ('playerClose' in d) closePlayer();
+  else if (d.pteam !== undefined) openPlayer(d.pteam, d.pnum, d.pname);
   else if ('retry' in d) loadMatches();
   else if ('clearSearch' in d) { state.mq = ''; render(); }
   else if ('today' in d) setDay(0);
@@ -737,6 +809,9 @@ document.addEventListener('click', (e) => {
     if (d.view === 'lineups' || d.view === 'players') {
       const k = `${state.matchId}:${d.view}`;
       if (state.extra[k] === undefined || state.extra[k] === 'error') loadExtra(d.view);
+      const f = state.detail && state.detail.fixture;
+      const pk = `${state.matchId}:players`;
+      if (d.view === 'lineups' && f && f.status !== 'NS' && state.extra[pk] === undefined) loadExtra('players');
     }
   }
   else if (d.day !== undefined) setDay(Number(d.day));
@@ -760,7 +835,8 @@ document.addEventListener('input', (e) => {
   }
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.cal) closeCal();
+  if (e.key === 'Escape' && state.player) closePlayer();
+  else if (e.key === 'Escape' && state.cal) closeCal();
 });
 
 // ---------- Live updates for your teams and matches ----------

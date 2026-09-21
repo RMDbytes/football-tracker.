@@ -22,6 +22,9 @@ const STATUS = {
   unknown: 'NS',
   'to be announced': 'TBD',
 };
+// Only real web addresses are passed on to the app.
+export const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : '');
+
 export const statusCode = (description) => STATUS[String(description ?? '').trim().toLowerCase()] || 'NS';
 
 export function parseScore(text) {
@@ -44,6 +47,9 @@ export function rowFromMatch(m) {
     league: m.league?.name ?? 'Other',
     country: m.country?.name ?? '',
     season: m.league?.season ?? null,
+    leagueLogo: safeUrl(m.league?.logo),
+    homeLogo: safeUrl(m.homeTeam?.logo),
+    awayLogo: safeUrl(m.awayTeam?.logo),
     home: m.homeTeam?.name ?? '?',
     away: m.awayTeam?.name ?? '?',
     homeGoals,
@@ -112,6 +118,36 @@ export function mapLineups(r) {
   return teams.every((t) => t.start.length === 0) ? [] : teams;
 }
 
+// Turns one player's match numbers into a readable list (zero values are left out).
+function detailList(p, s) {
+  const rows = [];
+  const add = (label, v, always) => {
+    if (v === null || v === undefined || v === '') return;
+    if (!always && (v === 0 || v === '0')) return;
+    rows.push({ label, value: String(v) });
+  };
+  add('Minutes', p.minutesPlayed, true);
+  add('Goals', s.goalsScored);
+  add('Assists', s.assists);
+  add('Shots', s.shotsTotal ? `${s.shotsTotal}${s.shotsOnTarget ? ` (${s.shotsOnTarget} on target)` : ''}` : null);
+  add('Key passes', s.passesKey);
+  add('Passes', s.passesTotal ? `${s.passesSuccessful ?? '?'}/${s.passesTotal}${s.passesAccuracy ? ` (${s.passesAccuracy})` : ''}` : null);
+  add('Dribbles', s.dribblesTotal ? `${s.dribblesSuccessful ?? 0}/${s.dribblesTotal}` : null);
+  add('Tackles', s.tacklesTotal);
+  add('Interceptions', s.interceptionsTotal);
+  add('Duels won', s.duelsTotal ? `${s.duelsWon ?? 0}/${s.duelsTotal}` : null);
+  add('Fouls committed', s.fouledOthers);
+  add('Fouls won', s.fouledByOthers);
+  add('Saves', s.goalsSaved);
+  add('Goals conceded', s.goalsConceded);
+  add('Offsides', p.offsides);
+  add('Expected goals (xG)', s.expectedGoals);
+  add('Expected assists (xA)', s.expectedAssists);
+  add('Yellow cards', s.cardsYellow);
+  add('Red cards', s.cardsRed);
+  return rows;
+}
+
 export function mapBoxScore(list) {
   return (Array.isArray(list) ? list : []).map((t) => ({
     team: t.team?.name ?? '',
@@ -123,6 +159,8 @@ export function mapBoxScore(list) {
           name: p.name,
           number: p.shirtNumber ?? null,
           pos: shortPos(p.position),
+          photo: safeUrl(p.logo),
+          captain: Boolean(p.isCaptain),
           minutes: p.minutesPlayed ?? 0,
           rating: Number.isFinite(rating) && rating > 0 ? rating : null,
           goals: s.goalsScored ?? 0,
@@ -132,6 +170,7 @@ export function mapBoxScore(list) {
           keyPasses: s.passesKey ?? 0,
           yellow: s.cardsYellow ?? 0,
           red: s.cardsRed ?? 0,
+          details: detailList(p, s),
         };
       })
       .filter((p) => p.minutes > 0 || p.rating !== null),
@@ -144,6 +183,7 @@ export function mapStandings(r) {
   return (group.standings || []).map((s) => ({
     rank: s.position,
     team: s.team?.name ?? '',
+    logo: safeUrl(s.team?.logo),
     played: s.total?.games ?? 0,
     goalDiff: (s.total?.scoredGoals ?? 0) - (s.total?.receivedGoals ?? 0),
     points: s.points ?? 0,
