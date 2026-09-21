@@ -13,6 +13,10 @@ const PORT = process.env.PORT || 3000;
 const NEWS_FEEDS = process.env.NEWS_FEEDS || '';                        // comma-separated RSS feed links
 const DAILY_LIMIT = Number(process.env.DAILY_LIMIT || 100);             // your plan's requests per day
 const LIVE_POLL_SECONDS = Number(process.env.LIVE_POLL_SECONDS || 300); // 300 suits the free plan
+const ERROR_RETRY_SECONDS = Number(process.env.ERROR_RETRY_SECONDS || 45); // wait before retrying after a temporary problem
+
+const HIGHLIGHTLY_KEY = process.env.HIGHLIGHTLY_KEY || ''; // only used by the test page below
+const DIAG_TOKEN = process.env.DIAG_TOKEN || '';           // any secret word; turns the test page on
 
 const DEMO = !API_KEY;
 const BASE = 'https://v3.football.api-sports.io';
@@ -103,6 +107,7 @@ async function cached(key, ttlMs, loader) {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TZ_RE = /^(UTC|[A-Za-z_]+(\/[A-Za-z0-9_+-]+){1,2})$/;
 
+let lastError = null; // most recent problem talking to the data provider (shown on /api/health)
 let planWindow = null; // { day, from, to } learned from the data provider when a day is not in the plan
 
 // Returns '' when fine, 'plan' when the data plan does not cover the day, 'error' for a temporary problem.
@@ -113,7 +118,8 @@ async function loadDay(date, tz, from, to) {
   const isToday = from <= now && now < to;
   const ttl = isPast ? 12 * 3600_000 : isToday ? 30 * 60_000 : 3 * 3600_000;
   const hit = dayCache.get(key);
-  if (hit && now - hit.at < (hit.note ? 6 * 3600_000 : ttl)) return hit.note || '';
+  const hold = hit && (hit.note === 'plan' ? 6 * 3600_000 : hit.note ? ERROR_RETRY_SECONDS * 1000 : ttl);
+  if (hit && now - hit.at < hold) return hit.note || '';
 
   if (DEMO) {
     demoDay(from, to);
@@ -126,12 +132,23 @@ async function loadDay(date, tz, from, to) {
   }
   if (!canSpend(10)) return 'error';
   try {
-    const items = await api('/fixtures', { date, timezone: tz });
+    let items;
+    try {
+      items = await api('/fixtures', { date, timezone: tz });
+    } catch (err) {
+      if (!/timezone/i.test(err.message)) throw err;
+      // The provider did not accept this time zone: ask by UTC date instead (the app filters to the local day afterwards).
+      items = [];
+      const first = new Date(from).toISOString().slice(0, 10);
+      const last = new Date(to - 1).toISOString().slice(0, 10);
+      for (const d of first === last ? [first] : [first, last]) items.push(...(await api('/fixtures', { date: d })));
+    }
     save(items.map(toRow));
     dayCache.set(key, { at: now, note: '' });
     return '';
   } catch (err) {
     console.error(`Day ${key} failed:`, err.message);
+    lastError = { at: new Date().toISOString(), day: key, message: String(err.message).slice(0, 300) };
     const note = /free plan|do not have access/i.test(err.message) ? 'plan' : 'error';
     if (note === 'plan') {
       const m = err.message.match(/(\d{4}-\d{2}-\d{2})\D+(\d{4}-\d{2}-\d{2})/);
@@ -480,8 +497,48 @@ app.get('/api/news', wrap(async (_req, res) => {
 }));
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, demo: DEMO, requestsToday: usage.count, dailyLimit: DAILY_LIMIT });
+  res.json({ ok: true, demo: DEMO, requestsToday: usage.count, dailyLimit: DAILY_LIMIT, lastError });
 });
+
+// ----- Test page for the Highlightly data source (off unless DIAG_TOKEN is set) -----
+// Open /api/diag/highlightly?token=YOURWORD to check the key and see what the free plan returns.
+// Optional: &date=YYYY-MM-DD, or &what=lineups|events|statistics|box-score|matches&matchId=123 to look at one match.
+// The key is never shown. Each call uses 1 request of your daily allowance.
+app.get('/api/diag/highlightly', wrap(async (req, res) => {
+  if (!DIAG_TOKEN || req.query.token !== DIAG_TOKEN) return res.status(404).json({ error: 'Not found' });
+  if (!HIGHLIGHTLY_KEY) return res.json({ error: 'HIGHLIGHTLY_KEY is not set in your settings' });
+  const what = String(req.query.what || 'day');
+  const matchId = Number(req.query.matchId);
+  let url;
+  if (what === 'day') {
+    const date = DATE_RE.test(String(req.query.date)) ? String(req.query.date) : today();
+    url = `https://soccer.highlightly.net/matches?date=${date}&limit=100`;
+  } else if (['lineups', 'events', 'statistics', 'box-score', 'matches'].includes(what) && Number.isInteger(matchId) && matchId > 0) {
+    url = `https://soccer.highlightly.net/${what}/${matchId}`;
+  } else {
+    return res.status(400).json({ error: 'Use what=day, or what=lineups|events|statistics|box-score|matches together with matchId=123' });
+  }
+  const r = await fetch(url, { headers: { 'x-rapidapi-key': HIGHLIGHTLY_KEY } });
+  const text = await r.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch {}
+  const out = { http: r.status, requestsLeftToday: r.headers.get('x-ratelimit-requests-remaining'), planLimit: r.headers.get('x-ratelimit-requests-limit') };
+  if (what === 'day' && json && Array.isArray(json.data)) {
+    const counts = {};
+    for (const m of json.data) {
+      const k = `${m.league?.name ?? '?'} (${m.country?.name ?? '?'})`;
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    out.plan = json.plan ?? null;
+    out.totalMatchesToday = json.pagination?.totalCount ?? null;
+    out.returnedInThisPage = json.data.length;
+    out.leagues = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([name, n]) => `${name}: ${n}`);
+    out.sample = json.data.slice(0, 3).map((m) => ({ id: m.id, league: m.league?.name, home: m.homeTeam?.name, away: m.awayTeam?.name, state: m.state }));
+  } else {
+    out.body = text.slice(0, 2500);
+  }
+  res.json(out);
+}));
 
 app.use(express.static(path.join(dir, 'public')));
 

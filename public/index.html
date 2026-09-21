@@ -145,6 +145,7 @@ nav button.on{color:var(--accent)}
 .sw.on{background:var(--accent)}.sw.on::after{left:24px;background:#0E1512}
 .linkrow{width:100%;border:0;border-bottom:1px solid #1E2C25;background:none;color:var(--text);text-align:left;padding:0 4px}
 .mid .follow{margin-top:6px}
+button.banner{display:block;width:100%;border:0;text-align:left;font-family:inherit}
 #toast{position:fixed;top:calc(12px + env(safe-area-inset-top));left:16px;right:16px;max-width:528px;margin:0 auto;z-index:10;display:none;min-height:52px;border:0;border-radius:14px;background:var(--accent);color:#0E1512;font-size:15px;font-weight:700;padding:0 16px;align-items:center;justify-content:space-between;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 #toast.show{display:flex}
 </style>
@@ -329,7 +330,7 @@ function todayView() {
     const hasLive = (g) => g.items.some((m) => LIVE.includes(m.status));
     const ordered = [...groups.values()].sort((a, b) => Number(hasLive(b)) - Number(hasLive(a)) || a.name.localeCompare(b.name));
     const note = r.note === 'plan' ? '<div class="banner">Your current data plan does not include this day.</div>'
-      : r.note === 'error' ? '<div class="banner">Could not refresh this day just now. Showing what we have.</div>' : '';
+      : r.note === 'error' ? '<button class="banner" data-retry>Could not refresh this day just now. Tap to try again.</button>' : '';
     body = note + followingBlock(list) + (ordered.length
       ? ordered.map((g) => `<div class="group"><div class="ghead"><b>${esc(g.name)}</b><span>${esc(g.country)}</span></div>${g.items.map(matchCard).join('')}</div>`).join('')
       : (r.note === 'plan' ? '' : '<div class="note">No matches here.</div>'));
@@ -651,10 +652,11 @@ function searchTeams() {
 // ---------- Taps and typing ----------
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('calwrap')) { closeCal(); return; }
-  const el = e.target.closest('[data-open],[data-back],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
+  const el = e.target.closest('[data-open],[data-back],[data-retry],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
   if (!el) return;
   const d = el.dataset;
   if (d.open) openMatch(d.open);
+  else if ('retry' in d) loadMatches();
   else if ('today' in d) setDay(0);
   else if ('calOpen' in d) openCal();
   else if ('calClose' in d) closeCal();
