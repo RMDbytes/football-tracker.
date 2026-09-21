@@ -539,7 +539,8 @@ async function loadNews() {
   const results = await Promise.allSettled(feeds.map(async (url) => {
     const feed = await parser.parseURL(url);
     return feed.items.slice(0, 30).map((item) => {
-      const tags = (Array.isArray(item.categories) ? item.categories : []).map((c) => String(c).slice(0, 40)).slice(0, 8);
+      const catText = (c) => (c && typeof c === 'object' ? c._ ?? c['#'] ?? '' : c);
+      const tags = (Array.isArray(item.categories) ? item.categories : []).map((c) => String(catText(c) ?? '').trim()).filter(Boolean).slice(0, 8).map((t) => t.slice(0, 40));
       return { title: item.title, link: item.link, source: feed.title, published: item.isoDate ?? null, tags, image: feedImage(item) };
     });
   }));
