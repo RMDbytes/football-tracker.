@@ -304,6 +304,11 @@ nav button svg{width:21px;height:21px}
 .rmsg a.primary{display:flex;align-items:center;justify-content:center;text-decoration:none;margin-top:0}
 .rfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px calc(6px + env(safe-area-inset-bottom));border-top:1px solid var(--line);font-size:12px;color:var(--muted);flex-shrink:0}
 .rbar a.ghost,.rfoot a.ghost{display:inline-flex;align-items:center;text-decoration:none;white-space:nowrap}
+
+#notice .calwrap{z-index:40}
+.npara{margin:0 0 6px;font-size:14px;line-height:1.5;color:var(--soft)}
+.chk{display:flex;align-items:center;gap:10px;min-height:44px;margin:6px 0 10px;font-size:14px;color:var(--soft);cursor:pointer}
+.chk input{width:20px;height:20px;accent-color:var(--accent);flex-shrink:0}
 #toast{position:fixed;top:calc(12px + env(safe-area-inset-top));left:16px;right:16px;max-width:528px;margin:0 auto;z-index:10;display:none;min-height:52px;border:0;border-radius:14px;background:var(--accent);color:#0E1512;font-size:15px;font-weight:700;padding:0 16px;align-items:center;justify-content:space-between;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 #toast.show{display:flex}
 </style>
@@ -336,6 +341,7 @@ function loadFav() {
     matches: (Array.isArray(raw.matches) ? raw.matches : [])
       .filter((m) => m && Number.isFinite(m.id) && Number(m.kickoff) > now - 3 * DAY_MS).slice(0, 50)
       .map((m) => ({ id: m.id, home: str(m.home), away: str(m.away), league: str(m.league), kickoff: Number(m.kickoff) })),
+    askBrowser: raw.askBrowser !== false,
     newsTeams: Array.isArray(raw.newsTeams) ? [...new Set(raw.newsTeams.map(str).filter(Boolean))].slice(0, 30) : [],
     newsLeagues: Array.isArray(raw.newsLeagues) ? [...new Set(raw.newsLeagues.map(str).filter(Boolean))].slice(0, 30) : [],
     alerts: {
@@ -348,7 +354,7 @@ let fav = loadFav();
 const saveFav = () => keep.set('ft_fav', JSON.stringify(fav));
 
 const state = {
-  tab: 'today', filter: 'all', mq: '', player: null, article: null, newsFilter: 'all', trackOpen: false, nq: '', nres: null, league: null, season: null, leagues: null, lq: '', view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
+  tab: 'today', filter: 'all', mq: '', player: null, article: null, notice: null, frameOk: {}, newsFilter: 'all', trackOpen: false, nq: '', nres: null, league: null, season: null, leagues: null, lq: '', view: 'ticker', day: 0, matchId: null, cal: null, extra: {},
   days: {}, detail: null, table: null, news: null,
   demo: false, error: '',
   tq: '', tres: null, confirmClear: false,
@@ -888,6 +894,8 @@ function favoritesView() {
     <div class="eyebrow" style="margin:20px 4px 4px">Alerts while the app is open</div>
     ${tog('goals', 'Goals')}${tog('kickoff', 'Kick-off')}${tog('halftime', 'Half-time')}${tog('fulltime', 'Full time')}
     <div class="fine">Alerts when the app is closed come with the Android and iPhone store versions.</div>
+    <div class="eyebrow" style="margin:20px 4px 4px">Reading news</div>
+    <button class="trow" data-askbrowser role="switch" aria-checked="${fav.askBrowser}"><span>Ask before opening a news site in the browser</span><i class="sw ${fav.askBrowser ? 'on' : ''}"></i></button>
     <div class="eyebrow" style="margin:20px 4px 4px">Recent updates</div>${log}
     <div class="danger"><b>Clear favorites</b><p>Remove all teams, matches and history saved on this device.</p>
     ${state.confirmClear
@@ -1068,7 +1076,7 @@ function trackRemove(kind, name) {
 let leagueTimer;
 function searchLeagues() { clearTimeout(leagueTimer); leagueTimer = setTimeout(loadLeagues, 300); }
 async function loadNews() {
-  try { state.news = await call('/api/news'); state.error = ''; }
+  try { state.news = await call('/api/news'); state.error = ''; prefetchFrames(state.news); }
   catch { state.error = 'News is unavailable right now.'; }
   if (state.tab === 'news' && !state.matchId) render();
 }
@@ -1080,6 +1088,55 @@ function openMatch(id, view) {
   render(); loadDetail();
   clearInterval(detailTimer); detailTimer = setInterval(loadDetail, 30000);
 }
+// ----- Deciding what happens when a headline is tapped -----
+const hostOf = (u) => { try { return new URL(u).host; } catch { return ''; } };
+// In the background, learn which news sites can be shown inside the app, so a tap can be answered instantly.
+function prefetchFrames(items) {
+  const seen = new Set();
+  for (const n of items || []) {
+    const h = n.link ? hostOf(n.link) : '';
+    if (!h || seen.has(h) || state.frameOk[h] !== undefined) continue;
+    seen.add(h);
+    if (seen.size > 8) break;
+    state.frameOk[h] = 'checking';
+    call(`/api/frame-check?u=${encodeURIComponent(n.link)}`)
+      .then((r) => { state.frameOk[h] = !!r.embeddable; })
+      .catch(() => { delete state.frameOk[h]; });
+  }
+}
+function openNews(url, title, source) {
+  if (!/^https?:\/\//i.test(url)) return;
+  const known = state.frameOk[hostOf(url)];
+  if (known === true) openArticle(url, title, source);
+  else if (known === false) leaveForBrowser(url, title, source);
+  else openArticle(url, title, source);   // not known yet: the viewer finds out, then hands over
+}
+const $notice = document.createElement('div');
+$notice.id = 'notice';
+document.body.appendChild($notice);
+function leaveForBrowser(url, title, source) {
+  if (!fav.askBrowser) {
+    const win = window.open(url, '_blank', 'noopener');
+    if (win) return;
+  }
+  state.notice = { url };
+  $notice.innerHTML = `<div class="calwrap" data-notice-overlay><div class="cal sheet" role="dialog" aria-label="Leaving the app">
+    <div class="phead"><div class="pinfo"><b>This site can't open inside the app</b><span>${esc(source || hostOf(url))}</span></div></div>
+    <p class="npara">It doesn't allow its articles to be shown here, so it will open in your browser. You can come straight back to the app afterwards.</p>
+    <label class="chk"><input type="checkbox" id="nsk"><span>Don't show this message again</span></label>
+    <div class="row2" style="margin-top:0"><button class="primary" style="margin-top:0;flex:1" data-notice-open>Open article</button><button class="ghost" data-notice-cancel>Cancel</button></div>
+  </div></div>`;
+}
+function closeNotice() { state.notice = null; $notice.innerHTML = ''; }
+function noticeOpen() {
+  const url = state.notice && state.notice.url;
+  const skip = document.getElementById('nsk');
+  if (skip && skip.checked) { fav.askBrowser = false; saveFav(); }
+  closeNotice();
+  if (url) window.open(url, '_blank', 'noopener');
+  if (state.tab === 'favorites') render();
+}
+
 // ----- Reading an article inside the app -----
 const $reader = document.createElement('div');
 $reader.id = 'reader';
@@ -1095,19 +1152,16 @@ function openArticle(url, title, source) {
     <div class="rbody" id="rbody"><div class="rmsg">Opening…</div></div>`;
   $reader.classList.add('show');
   call(`/api/frame-check?u=${encodeURIComponent(url)}`)
-    .then((r) => { if (state.article && state.article.url === url) showArticle(url, title, r.embeddable); })
-    .catch(() => { if (state.article && state.article.url === url) showArticle(url, title, false); });
+    .then((r) => { if (state.article && state.article.url === url) { state.frameOk[hostOf(url)] = !!r.embeddable; showArticle(url, title, r.embeddable, source); } })
+    .catch(() => { if (state.article && state.article.url === url) showArticle(url, title, false, source); });
 }
-function showArticle(url, title, ok) {
+function showArticle(url, title, ok, source) {
   const box = document.getElementById('rbody');
   if (!box) return;
+  if (!ok) { closeArticle(false); leaveForBrowser(url, title, source); return; }
   const open = `<a class="ghost" href="${esc(url)}" target="_blank" rel="noopener">Open in browser</a>`;
-  box.innerHTML = ok
-    ? `<iframe class="rframe" title="${esc(title)}" src="${esc(url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>
-       <div class="rfoot"><span>Page blank or stuck?</span>${open}</div>`
-    : `<div class="rmsg"><b>This site can't be shown inside the app.</b>
-       <p>Many news sites block being displayed inside other apps. The Android and iPhone store versions will show articles in a built-in browser window. For now you can open this one in your browser.</p>
-       <a class="primary" href="${esc(url)}" target="_blank" rel="noopener">Open article in browser</a></div>`;
+  box.innerHTML = `<iframe class="rframe" title="${esc(title)}" src="${esc(url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>
+    <div class="rfoot"><span>Page blank or stuck?</span><a class="ghost" href="${esc(url)}" target="_blank" rel="noopener">Open in browser</a></div>`;
 }
 function closeArticle(fromBack) {
   if (!state.article) return;
@@ -1167,7 +1221,7 @@ function toggleMatch(f) {
 function removeMatch(id) { fav.matches = fav.matches.filter((x) => x.id !== id); saveFav(); render(); }
 function togglePref(k) { fav.alerts[k] = !fav.alerts[k]; saveFav(); render(); }
 function clearFav() {
-  fav = { teams: [], matches: [], newsTeams: [], newsLeagues: [], alerts: { ...DEFAULT_ALERTS }, log: [] };
+  fav = { teams: [], matches: [], askBrowser: true, newsTeams: [], newsLeagues: [], alerts: { ...DEFAULT_ALERTS }, log: [] };
   saveFav(); state.confirmClear = false; state.tq = ''; state.tres = null; render();
 }
 let searchTimer;
@@ -1189,15 +1243,19 @@ function searchTeams() {
 
 // ---------- Taps and typing ----------
 document.addEventListener('click', (e) => {
+  if (e.target.hasAttribute && e.target.hasAttribute('data-notice-overlay')) { closeNotice(); return; }
   if (e.target.classList && e.target.classList.contains('calwrap')) { if (state.player) closePlayer(); else closeCal(); return; }
-  const el = e.target.closest('[data-open],[data-back],[data-article],[data-reader-close],[data-retry],[data-clear-search],[data-track-toggle],[data-track-team],[data-track-league],[data-track-word],[data-untrack-kind],[data-nfilter],[data-pteam],[data-player-close],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
+  const el = e.target.closest('[data-open],[data-back],[data-article],[data-reader-close],[data-notice-open],[data-notice-cancel],[data-askbrowser],[data-retry],[data-clear-search],[data-track-toggle],[data-track-team],[data-track-league],[data-track-word],[data-untrack-kind],[data-nfilter],[data-pteam],[data-player-close],[data-today],[data-cal-open],[data-cal-close],[data-cal-prev],[data-cal-next],[data-cal-day],[data-cal-today],[data-tab],[data-filter],[data-league],[data-view],[data-toast],[data-day],[data-follow-team],[data-unfollow-team],[data-follow-match],[data-unfollow-match],[data-pref],[data-clear-ask],[data-clear-yes],[data-clear-no]');
   if (!el) return;
   const d = el.dataset;
-  if (d.article !== undefined) { e.preventDefault(); openArticle(d.article, d.atitle, d.asource); }
+  if (d.article !== undefined) { e.preventDefault(); openNews(d.article, d.atitle, d.asource); }
+  else if ('noticeOpen' in d) noticeOpen();
+  else if ('noticeCancel' in d) closeNotice();
   else if ('readerClose' in d) closeArticle(false);
   else if (d.open) openMatch(d.open);
   else if ('playerClose' in d) closePlayer();
   else if (d.pteam !== undefined) openPlayer(d.pteam, d.pnum, d.pname);
+  else if ('askbrowser' in d) { fav.askBrowser = !fav.askBrowser; saveFav(); render(); }
   else if ('trackToggle' in d) { state.trackOpen = !state.trackOpen; state.nq = ''; state.nres = null; render(); }
   else if (d.trackTeam !== undefined) trackAdd('team', d.trackTeam);
   else if (d.trackLeague !== undefined) trackAdd('league', d.trackLeague);
@@ -1250,7 +1308,8 @@ document.addEventListener('input', (e) => {
   }
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.article) closeArticle(false);
+  if (e.key === 'Escape' && state.notice) closeNotice();
+  else if (e.key === 'Escape' && state.article) closeArticle(false);
   else if (e.key === 'Escape' && state.player) closePlayer();
   else if (e.key === 'Escape' && state.cal) closeCal();
 });

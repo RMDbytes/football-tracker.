@@ -128,11 +128,15 @@ iPhone (Safari):  Share button > "Add to Home Screen"
      crests     = club badges only, no publisher photos
      off        = no news pictures
 - Reading news inside the app: tapping a headline opens the article in a
-  window inside the app (Back or the arrow returns to the News list). Many
-  news sites forbid being shown inside other apps; the app checks each site
-  first and, when a site refuses, shows a short message with an "Open in
-  browser" button. The Android and iPhone store versions will use the phone's
-  built-in browser window, which works for every site.
+  window inside the app when the news site allows it (Back or the arrow
+  returns to the News list). Many news sites forbid being shown inside other
+  apps. For those, a small popup appears first with "Open article" (goes to
+  the site in your browser) and "Cancel", plus a "Don't show this message
+  again" tick box; once ticked, such headlines open the site straight away.
+  The switch "Ask before opening a news site in the browser" in the
+  Favorites screen brings the popup back. The Android and iPhone store
+  versions will use the phone's built-in browser window, which works for
+  every site.
 - Pictures come from the data provider's own servers. Club badges and player
   photos belong to their owners, so check the provider's terms before a
   public launch or before publishing to the app stores.
