@@ -12,7 +12,8 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 // ---------- Settings (optional; set them as "environment variables" on your host) ----------
 const API_KEY = process.env.API_KEY || '';                              // API-Football key. Empty = demo mode
 const PORT = process.env.PORT || 3000;
-const NEWS_FEEDS = process.env.NEWS_FEEDS || '';                        // comma-separated RSS feed links
+const NEWS_FEEDS = process.env.NEWS_FEEDS || '';                        // RSS feed links, separated by commas or spaces
+const NEWS_FEED_TIMEOUT_MS = Number(process.env.NEWS_FEED_TIMEOUT_MS || 10000);
 const NEWS_IMAGES = process.env.NEWS_IMAGES || 'publisher';             // publisher = photos from the feeds + club badges, crests = club badges only, off = no pictures
 const DAILY_LIMIT = Number(process.env.DAILY_LIMIT || 100);             // your plan's requests per day
 const LIVE_POLL_SECONDS = Number(process.env.LIVE_POLL_SECONDS || 300); // 300 suits the free plan
@@ -500,6 +501,12 @@ const DEMO_NEWS = [
 
 // ---------- News (headlines and links only) ----------
 const parser = new Parser({
+  timeout: NEWS_FEED_TIMEOUT_MS,
+  // Some publishers refuse requests that do not look like a browser or feed reader.
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (compatible; FootballTracker/1.0)',
+    Accept: 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5',
+  },
   customFields: { item: [['media:thumbnail', 'mediaThumbnail'], ['media:content', 'mediaContent', { keepArray: true }], ['content:encoded', 'contentEncoded']] },
 });
 
@@ -522,23 +529,42 @@ function feedImage(item) {
   good.sort((a, b) => Math.abs((a.width || 480) - 480) - Math.abs((b.width || 480) - 480));
   return good.length ? good[0].url : '';
 }
+// Feed links may be separated by commas, spaces or new lines.
+const feedList = () => [...new Set(NEWS_FEEDS.split(/[\s,;]+/).map((u) => u.trim()).filter((u) => /^https?:\/\//i.test(u)))];
+const feedLabel = (u) => { try { const x = new URL(u); return `${x.host}${x.pathname}`.slice(0, 80); } catch { return u.slice(0, 60); } };
+let feedStatus = []; // how each feed did on the last load (shown on /api/health)
+
 async function loadNews() {
-  const feeds = NEWS_FEEDS.split(',').map((s) => s.trim()).filter(Boolean);
+  const feeds = feedList();
+  const results = await Promise.allSettled(feeds.map(async (url) => {
+    const feed = await parser.parseURL(url);
+    return feed.items.slice(0, 30).map((item) => {
+      const tags = (Array.isArray(item.categories) ? item.categories : []).map((c) => String(c).slice(0, 40)).slice(0, 8);
+      return { title: item.title, link: item.link, source: feed.title, published: item.isoDate ?? null, tags, image: feedImage(item) };
+    });
+  }));
   const all = [];
-  for (const url of feeds) {
-    try {
-      const feed = await parser.parseURL(url);
-      for (const item of feed.items.slice(0, 30)) {
-        const tags = (Array.isArray(item.categories) ? item.categories : []).map((c) => String(c).slice(0, 40)).slice(0, 8);
-        all.push({ title: item.title, link: item.link, source: feed.title, published: item.isoDate ?? null, tags, image: feedImage(item) });
-      }
-    } catch (err) {
-      console.error('News feed failed:', url, err.message);
+  feedStatus = results.map((r, i) => {
+    if (r.status === 'fulfilled') {
+      all.push(...r.value);
+      return { feed: feedLabel(feeds[i]), ok: true, items: r.value.length };
     }
-  }
+    const error = String(r.reason?.message ?? r.reason).slice(0, 140);
+    console.error('News feed failed:', feedLabel(feeds[i]), error);
+    return { feed: feedLabel(feeds[i]), ok: false, error };
+  });
   const seen = new Set();
   const unique = all.filter((n) => n.title && (n.link ? !seen.has(n.link) && seen.add(n.link) : true));
   return unique.sort((a, b) => (b.published ?? '').localeCompare(a.published ?? '')).slice(0, 120);
+}
+
+// Headlines are kept for 10 minutes, or 2 minutes if any feed failed, so a temporary problem clears quickly.
+let newsCache = { at: 0, items: [], ttl: 0 };
+async function getNews() {
+  if (Date.now() - newsCache.at < newsCache.ttl) return newsCache.items;
+  const items = await loadNews();
+  newsCache = { at: Date.now(), items, ttl: feedStatus.some((f) => !f.ok) ? 120_000 : 600_000 };
+  return items;
 }
 
 const wrap = (fn) => (req, res) =>
@@ -793,7 +819,7 @@ app.get('/api/leagues', (req, res) => {
 
 let newsIndex = { at: 0, value: null };
 app.get('/api/news', wrap(async (_req, res) => {
-  const items = DEMO && !NEWS_FEEDS ? DEMO_NEWS : await cached('news', 10 * 60_000, loadNews);
+  const items = DEMO && !NEWS_FEEDS ? DEMO_NEWS : await getNews();
   if (NEWS_IMAGES === 'off') return res.json(items.map(({ image, ...rest }) => rest));
   if (Date.now() - newsIndex.at > 60_000) newsIndex = { at: Date.now(), value: buildIndex(fixtures.values()) };
   const withBadges = annotate(items, newsIndex.value);
@@ -804,7 +830,7 @@ app.get('/api/news', wrap(async (_req, res) => {
 // Only links that are in the current news list can be checked.
 app.get('/api/frame-check', wrap(async (req, res) => {
   const url = String(req.query.u ?? '');
-  const items = DEMO && !NEWS_FEEDS ? DEMO_NEWS : await cached('news', 10 * 60_000, loadNews);
+  const items = DEMO && !NEWS_FEEDS ? DEMO_NEWS : await getNews();
   if (!url || !items.some((i) => i.link === url)) return res.status(400).json({ error: 'Unknown link' });
   const host = new URL(url).host;
   const ours = String(req.headers.host || '').toLowerCase();
@@ -832,9 +858,10 @@ app.get('/api/frame-check', wrap(async (req, res) => {
   res.json(result);
 }));
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, demo: DEMO, provider: PROVIDER, tables: FOOTBALL_DATA_KEY ? 'football-data.org for 12 big competitions, main source for the rest' : 'main source', requestsToday: usage.count, dailyLimit: DAILY_LIMIT, lastError });
-});
+app.get('/api/health', wrap(async (_req, res) => {
+  if (NEWS_FEEDS && !newsCache.at) await getNews().catch(() => {});
+  res.json({ ok: true, demo: DEMO, provider: PROVIDER, tables: FOOTBALL_DATA_KEY ? 'football-data.org for 12 big competitions, main source for the rest' : 'main source', requestsToday: usage.count, dailyLimit: DAILY_LIMIT, lastError, newsFeeds: feedStatus });
+}));
 
 // ----- Test page for the Highlightly data source (off unless DIAG_TOKEN is set) -----
 // Open /api/diag/highlightly?token=YOURWORD to check the key and see what the free plan returns.

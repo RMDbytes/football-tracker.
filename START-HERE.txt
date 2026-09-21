@@ -109,8 +109,12 @@ iPhone (Safari):  Share button > "Add to Home Screen"
 - Alerts appear only while the app is open. Alerts when the app is closed
   (push notifications) come with the Android and iPhone store versions.
 - News (optional): add NEWS_FEEDS = links to news sites' RSS feeds
-  (several allowed, separated by commas), for example
+  (several allowed, separated by commas, spaces or new lines), for example
   https://feeds.bbci.co.uk/sport/football/rss.xml,https://www.theguardian.com/football/rss
+  If only some of your feeds show up, open /api/health on your app's
+  address: "newsFeeds" lists each feed with OK or the reason it failed
+  (for example a 403 or 404 error, a time-out, or "not recognized as RSS",
+  which means the link is a web page, not a feed).
   The app shows only the headline, the source name and a link back.
   Check each site's terms first; many allow personal, non-commercial use only.
   Personalised news: headlines that mention your followed teams come first
